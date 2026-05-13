@@ -6,6 +6,11 @@ import { productSchema } from "@/lib/product-schema";
 import { NotFoundError } from "@/lib/http-errors";
 import { getTenantContextFromRequest } from "@/lib/tenant-context";
 
+export const dynamic = "force-dynamic";
+
+/**
+ * GET /api/produtos
+ */
 export const GET = withApiHandler(async (request) => {
   const tenant = await getTenantContextFromRequest(request);
 
@@ -14,29 +19,42 @@ export const GET = withApiHandler(async (request) => {
       tenantId: tenant.id,
     },
     include: {
-      store: true,
+      store: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
     },
     orderBy: {
       updatedAt: "desc",
     },
   });
 
-  return NextResponse.json(products);
+  return NextResponse.json(products, { status: 200 });
 });
 
+/**
+ * POST /api/produtos
+ */
 export const POST = withApiHandler(async (request) => {
   const tenant = await getTenantContextFromRequest(request);
   const payload = await request.json();
+
   const parsed = productSchema.safeParse(payload);
 
   if (!parsed.success) {
     return NextResponse.json(
-      { message: "Dados invalidos.", errors: parsed.error.flatten().fieldErrors },
+      {
+        message: "Dados inválidos.",
+        errors: parsed.error.flatten().fieldErrors,
+      },
       { status: 400 },
     );
   }
 
   try {
+    // Verifica se a loja pertence ao tenant
     const store = await prisma.store.findFirst({
       where: {
         id: parsed.data.storeId,
@@ -46,7 +64,7 @@ export const POST = withApiHandler(async (request) => {
     });
 
     if (!store) {
-      throw new NotFoundError("Loja nao encontrada para este cliente.");
+      throw new NotFoundError("Loja não encontrada para este cliente.");
     }
 
     const product = await prisma.product.create({
@@ -55,19 +73,36 @@ export const POST = withApiHandler(async (request) => {
         tenantId: tenant.id,
       },
       include: {
-        store: true,
+        store: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 
     return NextResponse.json(product, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     if (getPrismaErrorCode(error) === "P2002") {
       return NextResponse.json(
-        { message: "Ja existe um produto com este codigo." },
+        { message: "Já existe um produto com este código." },
         { status: 409 },
       );
     }
 
-    throw error;
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { message: error.message },
+        { status: 404 },
+      );
+    }
+
+    console.error("Erro ao criar produto:", error);
+
+    return NextResponse.json(
+      { message: "Erro interno ao criar produto." },
+      { status: 500 },
+    );
   }
 });
