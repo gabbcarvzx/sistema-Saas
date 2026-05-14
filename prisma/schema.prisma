@@ -11,12 +11,12 @@ model Tenant {
   name          String
   slug          String              @unique
   status        TenantStatus        @default(ACTIVE)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @default(now()) @updatedAt
   logoUrl       String?
   primaryColor  String              @default("#22d3ee")
   supportEmail  String?
   settings      Json                @default("{}")
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @default(now()) @updatedAt
   paymentEvents PaymentEvent[]
   stores        Store[]
   subscription  TenantSubscription?
@@ -26,13 +26,13 @@ model Tenant {
 }
 
 model User {
+  tenantId  String
   id        String   @id @default(uuid())
   name      String
   email     String
   password  String
-  role      UserRole @default(MEMBER)
   createdAt DateTime @default(now())
-  tenantId  String
+  role      UserRole @default(MEMBER)
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, email])
@@ -40,11 +40,11 @@ model User {
 }
 
 model Store {
+  tenantId  String
   id        String    @id @default(uuid())
   name      String
   location  String?
   createdAt DateTime  @default(now())
-  tenantId  String
   products  Product[]
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -55,6 +55,7 @@ model Store {
 
 model Product {
   id        String   @id @default(uuid())
+  tenantId  String
   name      String
   code      String
   price     Float
@@ -64,7 +65,6 @@ model Product {
   storeId   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  tenantId  String
   store     Store    @relation(fields: [tenantId, storeId], references: [tenantId, id], onDelete: Cascade)
 
   @@unique([tenantId, id])
@@ -77,7 +77,6 @@ model Product {
 model TenantSubscription {
   id                     String             @id @default(uuid())
   tenantId               String             @unique
-  planId                 String
   status                 SubscriptionStatus @default(TRIAL)
   provider               PaymentProvider?
   providerCustomerId     String?
@@ -89,6 +88,7 @@ model TenantSubscription {
   blockedAt              DateTime?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @default(now()) @updatedAt
+  planId                 String
   plan                   SubscriptionPlan   @relation(fields: [planId], references: [id])
   tenant                 Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -103,22 +103,24 @@ model TenantSubscription {
 model SubscriptionPlan {
   id                String               @id @default(uuid())
   slug              String               @unique
-  code              PlanCode             @unique
   name              String
   description       String?
   priceCents        Int                  @default(0)
   currency          String               @default("BRL")
-  stripePriceId     String?              @unique
-  mercadoPagoPlanId String?              @unique
   trialDays         Int                  @default(14)
   productLimit      Int?
   storeLimit        Int?
   isActive          Boolean              @default(true)
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @default(now()) @updatedAt
+  code              PlanCode             @unique
+  stripePriceId     String?
+  mercadoPagoPlanId String?
   subscriptions     TenantSubscription[]
 
   @@index([isActive])
+  @@index([stripePriceId])
+  @@index([mercadoPagoPlanId])
 }
 
 model PaymentEvent {

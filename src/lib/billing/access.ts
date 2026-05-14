@@ -37,7 +37,7 @@ export async function getTenantAccessBySlug(slug: string) {
 
 export function assertTenantAccess(access: TenantAccessResult) {
   if (!access.allowed) {
-    throw new PlanExpiredError("Plano expirado ou bloqueado.", {
+    throw new PlanExpiredError("Plano bloqueado ou cancelado.", {
       reason: access.reason,
       tenantSlug: access.tenantSlug,
       subscriptionStatus: access.subscriptionStatus,

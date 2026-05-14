@@ -9,8 +9,10 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "db:check": "tsx scripts/check-db.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
+    "db:pull": "prisma db pull --config=./prisma.config.ts",
     "db:studio": "prisma studio --config=./prisma.config.ts --browser none",
     "db:seed": "prisma db seed",
     "postinstall": "prisma generate"

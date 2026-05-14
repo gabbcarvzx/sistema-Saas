@@ -2,7 +2,11 @@
 
 ## Variaveis obrigatorias
 
-- `DATABASE_URL`: conexao PostgreSQL usada pelo Prisma 7 via `prisma.config.ts` e adapter `@prisma/adapter-pg`.
+- `DATABASE_URL`: conexao PostgreSQL usada pelo runtime via Prisma 7 e `@prisma/adapter-pg`; em Vercel use Supabase Supavisor Transaction pooler na porta `6543` com `?pgbouncer=true&sslmode=require`.
+- `DIRECT_URL`: conexao usada por Prisma CLI, migrations, `db pull`, seed e Studio; use Supabase Supavisor Session pooler na porta `5432` com `?sslmode=require`.
+- `PGPOOL_MAX`: tamanho maximo do pool `pg` por instancia serverless; comece com `3`.
+- `PGCONNECT_TIMEOUT_MS`: timeout de conexao PostgreSQL; recomendado `10000`.
+- `PGIDLE_TIMEOUT_MS`: tempo para liberar conexoes ociosas; recomendado `30000`.
 - `APP_ROOT_DOMAIN`: dominio raiz para resolver tenants por subdominio, exemplo `seudominio.com`.
 - `APP_URL`: URL publica da aplicacao, usada para montar URLs externas.
 - `INTERNAL_ACCESS_SECRET`: segredo interno entre middleware e `/api/internal/tenant-access`; use 32+ caracteres.
@@ -27,16 +31,17 @@
 
 1. Configurar variaveis de ambiente em sandbox.
 2. Rodar `npm ci`.
-3. Rodar `npm run db:generate`.
-4. Rodar `npm run db:migrate`.
-5. Rodar `npm run db:seed`.
-6. Rodar `npm run typecheck`.
-7. Rodar `npm run test`.
-8. Rodar `npm run lint`.
-9. Rodar `npm run build`.
-10. Configurar DNS wildcard `*.seudominio.com`.
-11. Configurar webhooks Mercado Pago apontando para `MERCADO_PAGO_WEBHOOK_URL`.
-12. Publicar e executar smoke test autenticado.
+3. Rodar `npm run db:check`.
+4. Rodar `npm run db:generate`.
+5. Rodar `npm run db:migrate`.
+6. Rodar `npm run db:seed`.
+7. Rodar `npm run typecheck`.
+8. Rodar `npm run test`.
+9. Rodar `npm run lint`.
+10. Rodar `npm run build`.
+11. Configurar DNS wildcard `*.seudominio.com`.
+12. Configurar webhooks Mercado Pago apontando para `MERCADO_PAGO_WEBHOOK_URL`.
+13. Publicar e executar smoke test autenticado.
 
 ## Migracoes obrigatorias
 
@@ -48,6 +53,9 @@
 
 ## Testes obrigatorios
 
+- Rodar `npm run db:check` para validar DNS, TCP e `select 1`.
+- Rodar `npx prisma generate`.
+- Rodar `npx prisma db pull --config=./prisma.config.ts`.
 - Criar tenant por `/signup` e confirmar `Tenant`, `User`, `Store` e `TenantSubscription` com `tenantId`.
 - Entrar por `/login` e confirmar cookie `session` HTTP-only e `tenantSlug` HTTP-only.
 - Acessar `/dashboard`, `/`, `/api/products` e `/api/stores` autenticado.
@@ -56,6 +64,15 @@
 - Confirmar que `TRIAL` e `ACTIVE` acessam o sistema.
 - Confirmar que `BLOCKED` e `CANCELED` redirecionam para `/billing/blocked` ou retornam `402`.
 - Confirmar que checkout ainda funciona para tenant bloqueado quando a sessao e valida.
+
+## Como evitar P1001 com Supabase
+
+- Nao use `db.PROJECT_REF.supabase.co:5432` na Vercel, porque a conexao direta do Supabase resolve para IPv6.
+- Para ambiente local sem IPv6, tambem prefira Supavisor Session pooler na porta `5432`.
+- Para runtime serverless, use Supavisor Transaction pooler na porta `6543`.
+- Sempre inclua `sslmode=require`.
+- Se `npm run db:check` mostrar DNS apenas IPv6 e TCP falso, a rede atual nao consegue usar a conexao direta.
+- Se o pooler tambem falhar, confirme no painel Supabase se o projeto esta ativo, se a senha esta correta e se nao ha restricao de rede/IP.
 
 ## Validacao Mercado Pago
 
