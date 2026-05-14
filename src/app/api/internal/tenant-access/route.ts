@@ -10,10 +10,15 @@ export const runtime = "nodejs";
 export const GET = withApiHandler(async (request) => {
   const expectedSecret = process.env.INTERNAL_ACCESS_SECRET;
 
-  if (
-    expectedSecret &&
-    request.headers.get("x-internal-access-secret") !== expectedSecret
-  ) {
+  if (!expectedSecret) {
+    throw new AppError(
+      "INTERNAL_ACCESS_SECRET_MISSING",
+      "Controle interno de tenant nao configurado.",
+      503,
+    );
+  }
+
+  if (request.headers.get("x-internal-access-secret") !== expectedSecret) {
     throw new AppError("UNAUTHORIZED", "Acesso interno nao autorizado.", 401);
   }
 

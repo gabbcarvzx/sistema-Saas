@@ -9,9 +9,10 @@ type BillingBlockedPageProps = {
 };
 
 const reasonLabels: Record<string, string> = {
-  TRIAL_EXPIRED: "Seu periodo de teste terminou.",
-  PLAN_EXPIRED: "Sua assinatura precisa ser renovada.",
+  TRIAL_ACTIVE: "Seu periodo de teste esta ativo.",
+  PLAN_ACTIVE: "Sua assinatura esta ativa.",
   SUBSCRIPTION_BLOCKED: "Sua assinatura esta bloqueada.",
+  SUBSCRIPTION_CANCELED: "Sua assinatura foi cancelada.",
   TENANT_SUSPENDED: "Este cliente esta suspenso.",
   SUBSCRIPTION_MISSING: "Nenhuma assinatura ativa foi encontrada.",
 };
@@ -19,7 +20,7 @@ const reasonLabels: Record<string, string> = {
 export default function BillingBlockedPage({
   searchParams,
 }: BillingBlockedPageProps) {
-  const reason = searchParams?.reason ?? "PLAN_EXPIRED";
+  const reason = searchParams?.reason ?? "SUBSCRIPTION_BLOCKED";
   const message = reasonLabels[reason] ?? "O acesso ao sistema esta bloqueado.";
   const tenant = searchParams?.tenant;
   const supportEmail = process.env.SUPPORT_EMAIL ?? "suporte@stockpro.local";

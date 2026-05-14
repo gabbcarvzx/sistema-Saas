@@ -20,6 +20,12 @@ type CreateTenantCheckoutInput = {
   cancelUrl: string;
 };
 
+function optionalProviderId(value: string | null | undefined) {
+  const trimmed = value?.trim();
+
+  return trimmed && trimmed.length >= 8 ? trimmed : undefined;
+}
+
 export async function createTenantCheckoutSession(
   input: CreateTenantCheckoutInput,
 ): Promise<CheckoutResponse> {
@@ -65,30 +71,45 @@ export async function createTenantCheckoutSession(
     priceCents: plan.priceCents,
     currency: plan.currency,
     stripePriceId: plan.stripePriceId ?? undefined,
-    mercadoPagoPlanId: plan.mercadoPagoPlanId,
+    mercadoPagoPlanId: optionalProviderId(plan.mercadoPagoPlanId),
     payerEmail: input.payerEmail ?? adminUser?.email,
   });
 }
 
 export async function processBillingWebhook(event: ParsedWebhookEvent) {
-  const tenant = event.tenantId
-    ? await prisma.tenant.findUnique({
-        where: { id: event.tenantId },
-        select: { id: true },
-      })
-    : event.tenantSlug
-      ? await prisma.tenant.findUnique({
-          where: { slug: event.tenantSlug },
+  const [tenant, plan] = await Promise.all([
+    event.tenantId
+      ? prisma.tenant.findUnique({
+          where: { id: event.tenantId },
           select: { id: true },
         })
-      : null;
+      : event.tenantSlug
+        ? prisma.tenant.findUnique({
+            where: { slug: event.tenantSlug },
+            select: { id: true },
+          })
+        : null,
+    event.plan
+      ? prisma.subscriptionPlan.findUnique({
+          where: { code: event.plan },
+          select: { id: true },
+        })
+      : null,
+  ]);
 
-  const plan = event.plan
-    ? await prisma.subscriptionPlan.findUnique({
-        where: { code: event.plan },
-        select: { id: true },
-      })
-    : null;
+  if (!tenant) {
+    logger.warn("billing.webhook.tenant_unresolved", {
+      provider: event.provider,
+      providerEventId: event.providerEventId,
+      eventType: event.eventType,
+      tenantId: event.tenantId,
+      tenantSlug: event.tenantSlug,
+    });
+
+    return { tenantId: null, subscriptionUpdated: false };
+  }
+
+  const processedAt = new Date();
 
   await prisma.paymentEvent.upsert({
     where: {
@@ -98,22 +119,23 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       },
     },
     create: {
-      tenantId: tenant?.id,
+      tenantId: tenant.id,
       provider: event.provider,
       providerEventId: event.providerEventId,
       eventType: event.eventType,
       payload: event.payload as Prisma.InputJsonValue,
+      processedAt,
     },
     update: {
-      tenantId: tenant?.id,
+      tenantId: tenant.id,
       eventType: event.eventType,
       payload: event.payload as Prisma.InputJsonValue,
-      processedAt: new Date(),
+      processedAt,
     },
   });
 
-  if (!tenant || !event.subscriptionStatus) {
-    return { tenantId: tenant?.id ?? null, subscriptionUpdated: false };
+  if (!event.subscriptionStatus) {
+    return { tenantId: tenant.id, subscriptionUpdated: false };
   }
 
   if (event.subscriptionStatus === "BLOCKED") {
@@ -137,20 +159,54 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
     });
   }
 
-  await prisma.tenantSubscription.update({
+  const existingSubscription = await prisma.tenantSubscription.findUnique({
     where: { tenantId: tenant.id },
-    data: {
-      planId: plan?.id,
+    select: { planId: true },
+  });
+
+  const planId = plan?.id ?? existingSubscription?.planId;
+
+  if (!planId) {
+    logger.error("billing.subscription.plan_unresolved", {
+      tenantId: tenant.id,
+      provider: event.provider,
+      providerEventId: event.providerEventId,
+      eventType: event.eventType,
+      plan: event.plan,
+    });
+
+    return { tenantId: tenant.id, subscriptionUpdated: false };
+  }
+
+  const isBlocked =
+    event.subscriptionStatus === "BLOCKED" ||
+    event.subscriptionStatus === "CANCELED";
+  const isActive = event.subscriptionStatus === "ACTIVE";
+
+  await prisma.tenantSubscription.upsert({
+    where: { tenantId: tenant.id },
+    create: {
+      tenantId: tenant.id,
+      planId,
       status: event.subscriptionStatus,
       provider: event.provider,
       providerCustomerId: event.providerCustomerId,
       providerSubscriptionId: event.providerSubscriptionId,
+      currentPeriodStart: isActive ? processedAt : undefined,
       currentPeriodEnd: event.currentPeriodEnd,
-      blockedAt:
-        event.subscriptionStatus === "BLOCKED" ||
-        event.subscriptionStatus === "CANCELED"
-          ? new Date()
-          : null,
+      cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
+      blockedAt: isBlocked ? processedAt : null,
+    },
+    update: {
+      ...(plan ? { planId: plan.id } : {}),
+      status: event.subscriptionStatus,
+      provider: event.provider,
+      providerCustomerId: event.providerCustomerId,
+      providerSubscriptionId: event.providerSubscriptionId,
+      currentPeriodStart: isActive ? processedAt : undefined,
+      currentPeriodEnd: event.currentPeriodEnd,
+      cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
+      blockedAt: isBlocked ? processedAt : null,
     },
   });
 

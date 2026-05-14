@@ -20,6 +20,7 @@ type MercadoPagoCheckoutInput = {
   planName: string;
   amountCents: number;
   currency: string;
+  mercadoPagoPlanId?: string | null;
   successUrl: string;
   cancelUrl: string;
   payerEmail?: string;
@@ -47,6 +48,8 @@ type MercadoPagoWebhookEvent = {
 };
 
 type JsonObject = Record<string, unknown>;
+
+const DEFAULT_WEBHOOK_TOLERANCE_MS = 10 * 60 * 1000;
 
 function requireEnv(name: string) {
   const value = process.env[name];
@@ -197,19 +200,25 @@ export async function createMercadoPagoRecurringSubscription(
   }
 
   const preApproval = new PreApproval(getMercadoPagoClient());
+  const recurringConfig = input.mercadoPagoPlanId
+    ? {}
+    : {
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: "months",
+          transaction_amount: amountFromCents(input.amountCents),
+          currency_id: currencyId(input.currency),
+        },
+      };
   const result = await preApproval.create({
     body: {
+      preapproval_plan_id: input.mercadoPagoPlanId || undefined,
       reason: input.planName,
       external_reference: externalReference(input),
       payer_email: input.payerEmail,
       back_url: input.successUrl,
-      auto_recurring: {
-        frequency: 1,
-        frequency_type: "months",
-        transaction_amount: amountFromCents(input.amountCents),
-        currency_id: currencyId(input.currency),
-      },
       status: "pending",
+      ...recurringConfig,
     },
     requestOptions: { idempotencyKey: randomUUID() },
   });
@@ -283,6 +292,29 @@ function getSignatureParts(signature: string) {
   }, {});
 }
 
+function getWebhookToleranceMs() {
+  const rawValue = process.env.MERCADO_PAGO_WEBHOOK_TOLERANCE_MS;
+  const parsed = rawValue ? Number(rawValue) : DEFAULT_WEBHOOK_TOLERANCE_MS;
+
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_WEBHOOK_TOLERANCE_MS;
+}
+
+function assertRecentWebhookTimestamp(ts: string) {
+  const timestamp = Number(ts);
+
+  if (!Number.isFinite(timestamp)) {
+    throw new UnauthorizedError("Timestamp Mercado Pago invalido.");
+  }
+
+  const drift = Math.abs(Date.now() - timestamp);
+
+  if (drift > getWebhookToleranceMs()) {
+    throw new UnauthorizedError("Assinatura Mercado Pago expirada.");
+  }
+}
+
 export function verifyMercadoPagoWebhookSignature(
   rawBody: string,
   request: Request,
@@ -304,6 +336,8 @@ export function verifyMercadoPagoWebhookSignature(
   if (!ts || !receivedHash) {
     throw new UnauthorizedError("Assinatura Mercado Pago malformada.");
   }
+
+  assertRecentWebhookTimestamp(ts);
 
   const manifest = [
     dataId ? `id:${normalizeDataId(dataId)};` : "",
@@ -339,6 +373,7 @@ function mapPaymentStatus(status: string | undefined) {
   if (
     status === "rejected" ||
     status === "cancelled" ||
+    status === "canceled" ||
     status === "refunded" ||
     status === "charged_back"
   ) {
@@ -353,7 +388,7 @@ function mapPreApprovalStatus(status: string | undefined) {
     return "ACTIVE" as const;
   }
 
-  if (status === "cancelled") {
+  if (status === "cancelled" || status === "canceled") {
     return "CANCELED" as const;
   }
 

@@ -31,8 +31,8 @@ export class UnauthorizedError extends AppError {
 }
 
 export class PlanExpiredError extends AppError {
-  constructor(message = "Plano expirado ou bloqueado.", details?: unknown) {
-    super("PLAN_EXPIRED", message, 402, details);
+  constructor(message = "Plano bloqueado ou cancelado.", details?: unknown) {
+    super("PLAN_BLOCKED", message, 402, details);
   }
 }
 

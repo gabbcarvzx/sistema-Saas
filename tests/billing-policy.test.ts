@@ -4,8 +4,6 @@ import {
   type TenantAccessSnapshot,
 } from "../src/lib/billing/policy";
 
-const now = new Date("2026-05-13T12:00:00.000Z");
-
 function tenant(
   subscription: TenantAccessSnapshot["subscription"],
 ): TenantAccessSnapshot {
@@ -28,14 +26,13 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: new Date("2026-05-20T12:00:00.000Z"),
         blockedAt: null,
       }),
-      now,
     );
 
     expect(access.allowed).toBe(true);
     expect(access.reason).toBe("TRIAL_ACTIVE");
   });
 
-  it("blocks expired trial automatically by policy", () => {
+  it("allows trial status even after trial end until billing marks it blocked", () => {
     const access = evaluateTenantAccess(
       tenant({
         id: "sub-1",
@@ -44,11 +41,10 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: new Date("2026-05-01T12:00:00.000Z"),
         blockedAt: null,
       }),
-      now,
     );
 
-    expect(access.allowed).toBe(false);
-    expect(access.reason).toBe("TRIAL_EXPIRED");
+    expect(access.allowed).toBe(true);
+    expect(access.reason).toBe("TRIAL_ACTIVE");
   });
 
   it("allows active paid plan without period end for manual billing", () => {
@@ -60,14 +56,13 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: null,
         blockedAt: null,
       }),
-      now,
     );
 
     expect(access.allowed).toBe(true);
     expect(access.reason).toBe("PLAN_ACTIVE");
   });
 
-  it("blocks expired paid plan", () => {
+  it("allows active paid plan even after period end until billing marks it blocked", () => {
     const access = evaluateTenantAccess(
       tenant({
         id: "sub-1",
@@ -76,11 +71,10 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: new Date("2026-05-01T12:00:00.000Z"),
         blockedAt: null,
       }),
-      now,
     );
 
-    expect(access.allowed).toBe(false);
-    expect(access.reason).toBe("PLAN_EXPIRED");
+    expect(access.allowed).toBe(true);
+    expect(access.reason).toBe("PLAN_ACTIVE");
   });
 
   it("allows active paid plan even when blockedAt has stale audit data", () => {
@@ -92,10 +86,39 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: new Date("2026-05-20T12:00:00.000Z"),
         blockedAt: new Date("2026-05-01T12:00:00.000Z"),
       }),
-      now,
     );
 
     expect(access.allowed).toBe(true);
     expect(access.reason).toBe("PLAN_ACTIVE");
+  });
+
+  it("blocks explicitly blocked subscriptions", () => {
+    const access = evaluateTenantAccess(
+      tenant({
+        id: "sub-1",
+        status: "BLOCKED",
+        trialEndsAt: null,
+        currentPeriodEnd: null,
+        blockedAt: new Date("2026-05-01T12:00:00.000Z"),
+      }),
+    );
+
+    expect(access.allowed).toBe(false);
+    expect(access.reason).toBe("SUBSCRIPTION_BLOCKED");
+  });
+
+  it("blocks canceled subscriptions", () => {
+    const access = evaluateTenantAccess(
+      tenant({
+        id: "sub-1",
+        status: "CANCELED",
+        trialEndsAt: null,
+        currentPeriodEnd: null,
+        blockedAt: new Date("2026-05-01T12:00:00.000Z"),
+      }),
+    );
+
+    expect(access.allowed).toBe(false);
+    expect(access.reason).toBe("SUBSCRIPTION_CANCELED");
   });
 });

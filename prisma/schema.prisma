@@ -50,6 +50,7 @@ model Store {
 
   @@unique([tenantId, id])
   @@index([tenantId])
+  @@index([tenantId, name])
 }
 
 model Product {
@@ -70,6 +71,7 @@ model Product {
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([tenantId, storeId])
+  @@index([tenantId, category])
 }
 
 model TenantSubscription {
@@ -91,6 +93,7 @@ model TenantSubscription {
   tenant                 Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([planId])
+  @@index([tenantId, status])
   @@index([status, trialEndsAt])
   @@index([status, currentPeriodEnd])
   @@index([provider, providerCustomerId])
@@ -120,17 +123,18 @@ model SubscriptionPlan {
 
 model PaymentEvent {
   id              String          @id @default(uuid())
-  tenantId        String?
+  tenantId        String
   provider        PaymentProvider
   providerEventId String
   eventType       String
   payload         Json
   processedAt     DateTime?
   createdAt       DateTime        @default(now())
-  tenant          Tenant?         @relation(fields: [tenantId], references: [id])
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerEventId])
   @@index([tenantId])
+  @@index([tenantId, provider, eventType])
   @@index([provider, eventType])
 }
 

@@ -13,6 +13,8 @@ type TenantAccessResponse = {
 const PUBLIC_PATHS = [
   "/billing/blocked",
   "/api/internal/tenant-access",
+  "/api/billing/create-checkout",
+  "/api/billing/checkout",
   "/api/billing/webhook",
   "/api/webhooks/mercadopago",
   "/api/login",
@@ -20,6 +22,12 @@ const PUBLIC_PATHS = [
   "/login",
   "/signup",
 ];
+
+function getInternalAccessSecret() {
+  const secret = process.env.INTERNAL_ACCESS_SECRET;
+
+  return secret && secret.trim().length > 0 ? secret : null;
+}
 
 function isPublicPath(pathname: string) {
   return PUBLIC_PATHS.some(
@@ -36,8 +44,8 @@ function planBlockedResponse(request: NextRequest, access: TenantAccessResponse)
   if (isApiRequest(request.nextUrl.pathname)) {
     return NextResponse.json(
       {
-        code: "PLAN_EXPIRED",
-        message: "Plano expirado ou bloqueado.",
+        code: "PLAN_BLOCKED",
+        message: "Plano bloqueado ou cancelado.",
         reason: access.reason,
       },
       { status: 402 },
@@ -75,6 +83,22 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const internalAccessSecret = getInternalAccessSecret();
+
+  if (!internalAccessSecret) {
+    if (isApiRequest(pathname)) {
+      return NextResponse.json(
+        {
+          code: "INTERNAL_ACCESS_SECRET_MISSING",
+          message: "Controle interno de tenant nao configurado.",
+        },
+        { status: 503 },
+      );
+    }
+
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
   const tenantSlug = resolveTenantSlug(request.headers, request.nextUrl);
   const checkUrl = request.nextUrl.clone();
   checkUrl.pathname = "/api/internal/tenant-access";
@@ -84,7 +108,7 @@ export async function middleware(request: NextRequest) {
   const checkResponse = await fetch(checkUrl, {
     cache: "no-store",
     headers: {
-      "x-internal-access-secret": process.env.INTERNAL_ACCESS_SECRET ?? "",
+      "x-internal-access-secret": internalAccessSecret,
       "x-tenant-slug": tenantSlug,
     },
   });

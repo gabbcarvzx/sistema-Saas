@@ -77,6 +77,7 @@ export async function createCheckoutSession(
       planName: request.planName,
       amountCents: request.priceCents,
       currency: request.currency,
+      mercadoPagoPlanId: request.mercadoPagoPlanId,
       payerEmail: request.payerEmail,
       successUrl: request.successUrl,
       cancelUrl: request.cancelUrl,
