@@ -83,6 +83,7 @@ model TenantSubscription {
   provider               PaymentProvider?
   providerCustomerId     String?
   providerSubscriptionId String?
+  trialStartsAt          DateTime?
   trialEndsAt            DateTime?
   currentPeriodStart     DateTime?
   currentPeriodEnd       DateTime?
@@ -96,6 +97,7 @@ model TenantSubscription {
 
   @@index([planId])
   @@index([tenantId, status])
+  @@index([status, trialStartsAt])
   @@index([status, trialEndsAt])
   @@index([status, currentPeriodEnd])
   @@index([provider, providerCustomerId])

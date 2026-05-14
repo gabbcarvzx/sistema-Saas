@@ -131,7 +131,8 @@ async function main() {
   });
 
   const now = new Date();
-  const trialEndsAt = addDays(now, trialPlan.trialDays);
+  const trialStartsAt = now;
+  const trialEndsAt = addDays(trialStartsAt, trialPlan.trialDays);
 
   // ✅ Criar tenant demo
   const tenant = await prisma.tenant.upsert({
@@ -152,8 +153,9 @@ async function main() {
         create: {
           planId: trialPlan.id,
           status: "TRIAL",
+          trialStartsAt,
           trialEndsAt,
-          currentPeriodStart: now,
+          currentPeriodStart: trialStartsAt,
           currentPeriodEnd: trialEndsAt,
         },
       },
@@ -168,8 +170,9 @@ async function main() {
         tenantId: tenant.id,
         planId: trialPlan.id,
         status: "TRIAL",
+        trialStartsAt,
         trialEndsAt,
-        currentPeriodStart: now,
+        currentPeriodStart: trialStartsAt,
         currentPeriodEnd: trialEndsAt,
       },
     });

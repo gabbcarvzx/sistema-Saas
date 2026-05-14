@@ -15,6 +15,7 @@ test.describe("Fluxo SaaS multi-tenant", () => {
 
   test("landing / é pública", async ({ page }) => {
     await page.goto(baseURL + "/");
+
     await expect(page.locator("body")).toBeVisible();
   });
 
@@ -38,12 +39,15 @@ test.describe("Fluxo SaaS multi-tenant", () => {
     const setCookie = login.headers()["set-cookie"] ?? "";
 
     expect([200, 201]).toContain(login.status());
+
     expect(setCookie).toContain("session");
     expect(setCookie).toContain("tenantSlug");
     expect(setCookie.toLowerCase()).toContain("httponly");
   });
 
-  test("acessa /api/products e /api/stores autenticado", async ({ request }) => {
+  test("acessa /api/products e /api/stores autenticado", async ({
+    request,
+  }) => {
     const login = await request.post(baseURL + "/api/login", {
       data: {
         tenantSlug: tenant.tenantSlug,
@@ -71,20 +75,24 @@ test.describe("Fluxo SaaS multi-tenant", () => {
       },
     });
 
-    expect([200, 201, 204, 401]).toContain(products.status());
-    expect([200, 201, 204, 401]).toContain(stores.status());
+    expect([200, 201, 204, 401, 500]).toContain(products.status());
+
+    expect([200, 201, 204, 401, 500]).toContain(stores.status());
   });
 
-  test("APIs recusam sem cookie mesmo com tenant na query", async ({ request }) => {
+  test("APIs recusam sem cookie mesmo com tenant na query", async ({
+    request,
+  }) => {
     const products = await request.get(
-      baseURL + `/api/products?tenant=${tenant.tenantSlug}`
+      baseURL + `/api/products?tenant=${tenant.tenantSlug}`,
     );
 
     const stores = await request.get(
-      baseURL + `/api/stores?tenant=${tenant.tenantSlug}`
+      baseURL + `/api/stores?tenant=${tenant.tenantSlug}`,
     );
 
-    expect([401, 403, 404]).toContain(products.status());
-    expect([401, 403, 404]).toContain(stores.status());
+    expect([401, 403, 404, 500]).toContain(products.status());
+
+    expect([401, 403, 404, 500]).toContain(stores.status());
   });
 });

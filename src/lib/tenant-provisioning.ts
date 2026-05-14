@@ -1,7 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_TENANT_SLUG } from "@/lib/tenant-resolver";
 
-export const DEFAULT_TRIAL_DAYS = Number(process.env.DEFAULT_TRIAL_DAYS ?? 14);
+const FALLBACK_TRIAL_DAYS = 14;
+
+function parseDefaultTrialDays() {
+  const parsed = Number(process.env.DEFAULT_TRIAL_DAYS ?? FALLBACK_TRIAL_DAYS);
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : FALLBACK_TRIAL_DAYS;
+}
+
+export const DEFAULT_TRIAL_DAYS = parseDefaultTrialDays();
 
 export const INITIAL_STORES = [
   { name: "Loja Matriz", location: "Centro" },
@@ -121,7 +129,8 @@ export async function createInitialTenant({
   }
 
   const now = new Date();
-  const trialEndsAt = addDays(now, trialDays);
+  const trialStartsAt = now;
+  const trialEndsAt = addDays(trialStartsAt, trialDays);
 
   return prisma.$transaction(async (tx) => {
     const plan = await tx.subscriptionPlan.findUniqueOrThrow({
@@ -138,8 +147,9 @@ export async function createInitialTenant({
           create: {
             planId: plan.id,
             status: "TRIAL",
+            trialStartsAt,
             trialEndsAt,
-            currentPeriodStart: now,
+            currentPeriodStart: trialStartsAt,
             currentPeriodEnd: trialEndsAt,
           },
         },
