@@ -58,7 +58,8 @@
 - Rodar `npx prisma db pull --config=./prisma.config.ts`.
 - Criar tenant por `/signup` e confirmar `Tenant`, `User`, `Store` e `TenantSubscription` com `tenantId`.
 - Entrar por `/login` e confirmar cookie `session` HTTP-only e `tenantSlug` HTTP-only.
-- Acessar `/dashboard`, `/`, `/api/products` e `/api/stores` autenticado.
+- Acessar `/` como landing publica.
+- Acessar `/app`, `/app/dashboard`, `/api/products` e `/api/stores` autenticado.
 - Confirmar que APIs recusam requisicao sem cookie mesmo com `?tenant=slug`.
 - Confirmar que um usuario de tenant A nao acessa dados do tenant B.
 - Confirmar que `TRIAL` e `ACTIVE` acessam o sistema.
@@ -91,7 +92,8 @@
 - `GET /signup`
 - `POST /api/signup`
 - `POST /api/login`
-- `GET /dashboard` com cookie autenticado
+- `GET /` sem cookie deve abrir a landing publica
+- `GET /app/dashboard` com cookie autenticado
 - `GET /api/stores` com cookie autenticado
 - `POST /api/billing/create-checkout`
 - `POST /api/webhooks/mercadopago` com assinatura valida

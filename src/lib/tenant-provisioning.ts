@@ -69,6 +69,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS = [
 type CreateInitialTenantInput = {
   name: string;
   slug: string;
+  businessType?: "AUTO_REPAIR" | "RETAIL" | "RESTAURANT" | "HEALTHCARE" | "EDUCATION" | "SERVICES" | "GENERIC";
   trialDays?: number;
 };
 
@@ -105,6 +106,7 @@ export async function ensureSubscriptionPlans() {
 export async function createInitialTenant({
   name,
   slug,
+  businessType = "AUTO_REPAIR",
   trialDays = DEFAULT_TRIAL_DAYS,
 }: CreateInitialTenantInput) {
   await ensureSubscriptionPlans();
@@ -131,6 +133,7 @@ export async function createInitialTenant({
       data: {
         name,
         slug,
+        businessType,
         subscription: {
           create: {
             planId: plan.id,

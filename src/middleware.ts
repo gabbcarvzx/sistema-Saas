@@ -10,18 +10,7 @@ type TenantAccessResponse = {
   subscriptionStatus: string;
 };
 
-const PUBLIC_PATHS = [
-  "/billing/blocked",
-  "/api/internal/tenant-access",
-  "/api/billing/create-checkout",
-  "/api/billing/checkout",
-  "/api/billing/webhook",
-  "/api/webhooks/mercadopago",
-  "/api/login",
-  "/api/signup",
-  "/login",
-  "/signup",
-];
+const APP_PATH_PREFIX = "/app";
 
 function getInternalAccessSecret() {
   const secret = process.env.INTERNAL_ACCESS_SECRET;
@@ -29,29 +18,13 @@ function getInternalAccessSecret() {
   return secret && secret.trim().length > 0 ? secret : null;
 }
 
-function isPublicPath(pathname: string) {
-  return PUBLIC_PATHS.some(
-    (publicPath) =>
-      pathname === publicPath || pathname.startsWith(`${publicPath}/`),
+function isProtectedAppPath(pathname: string) {
+  return (
+    pathname === APP_PATH_PREFIX || pathname.startsWith(`${APP_PATH_PREFIX}/`)
   );
 }
 
-function isApiRequest(pathname: string) {
-  return pathname.startsWith("/api/");
-}
-
 function planBlockedResponse(request: NextRequest, access: TenantAccessResponse) {
-  if (isApiRequest(request.nextUrl.pathname)) {
-    return NextResponse.json(
-      {
-        code: "PLAN_BLOCKED",
-        message: "Plano bloqueado ou cancelado.",
-        reason: access.reason,
-      },
-      { status: 402 },
-    );
-  }
-
   const blockedUrl = request.nextUrl.clone();
   blockedUrl.pathname = "/billing/blocked";
   blockedUrl.searchParams.set("tenant", access.tenantSlug);
@@ -61,13 +34,6 @@ function planBlockedResponse(request: NextRequest, access: TenantAccessResponse)
 }
 
 function unauthorizedResponse(request: NextRequest, tenantSlug: string) {
-  if (isApiRequest(request.nextUrl.pathname)) {
-    return NextResponse.json(
-      { code: "UNAUTHORIZED", message: "Sessao invalida ou expirada." },
-      { status: 401 },
-    );
-  }
-
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = "/login";
   loginUrl.search = "";
@@ -79,27 +45,17 @@ function unauthorizedResponse(request: NextRequest, tenantSlug: string) {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (isPublicPath(pathname)) {
+  if (!isProtectedAppPath(pathname)) {
     return NextResponse.next();
   }
 
+  const tenantSlug = resolveTenantSlug(request.headers, request.nextUrl);
   const internalAccessSecret = getInternalAccessSecret();
 
   if (!internalAccessSecret) {
-    if (isApiRequest(pathname)) {
-      return NextResponse.json(
-        {
-          code: "INTERNAL_ACCESS_SECRET_MISSING",
-          message: "Controle interno de tenant nao configurado.",
-        },
-        { status: 503 },
-      );
-    }
-
-    return NextResponse.redirect(new URL("/login", request.url));
+    return unauthorizedResponse(request, tenantSlug);
   }
 
-  const tenantSlug = resolveTenantSlug(request.headers, request.nextUrl);
   const checkUrl = request.nextUrl.clone();
   checkUrl.pathname = "/api/internal/tenant-access";
   checkUrl.search = "";
@@ -114,14 +70,13 @@ export async function middleware(request: NextRequest) {
   });
 
   if (!checkResponse.ok) {
-    if (isApiRequest(pathname)) {
-      return NextResponse.json(
-        { code: "TENANT_ACCESS_UNAVAILABLE", message: "Tenant indisponivel." },
-        { status: checkResponse.status },
-      );
-    }
+    const blockedUrl = request.nextUrl.clone();
+    blockedUrl.pathname = "/billing/blocked";
+    blockedUrl.search = "";
+    blockedUrl.searchParams.set("tenant", tenantSlug);
+    blockedUrl.searchParams.set("reason", "TENANT_ACCESS_UNAVAILABLE");
 
-    return NextResponse.rewrite(new URL("/billing/blocked", request.url));
+    return NextResponse.redirect(blockedUrl);
   }
 
   const access = (await checkResponse.json()) as TenantAccessResponse;
@@ -172,5 +127,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+  matcher: ["/app/:path*"],
 };

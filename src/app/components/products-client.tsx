@@ -252,15 +252,15 @@ export function ProductsClient() {
 
         <nav className="mt-10 space-y-1">
           {[
-            { label: "Dashboard", href: "/dashboard", icon: Boxes, active: false },
-            { label: "Produtos", href: "/", icon: PackagePlus, active: true },
+            { label: "Dashboard", href: "/app/dashboard", icon: Boxes, active: false },
+            { label: "Produtos", href: "/app", icon: PackagePlus, active: true },
             {
               label: "Produtos em Falta",
-              href: "/produtos-em-falta",
+              href: "/app/produtos-em-falta",
               icon: AlertTriangle,
               active: false,
             },
-            { label: "Lojas", href: "/dashboard/lojas", icon: Store, active: false },
+            { label: "Lojas", href: "/app/dashboard/lojas", icon: Store, active: false },
           ].map((item) => (
             <Link
               key={item.label}

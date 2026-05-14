@@ -55,7 +55,7 @@ export default function BillingBlockedPage({
             Atualizar plano
           </Link>
           <Link
-            href="/"
+            href="/app"
             className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-white/10 px-4 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.06]"
           >
             <RefreshCcw size={18} />

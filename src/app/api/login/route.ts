@@ -22,7 +22,7 @@ export const POST = withApiHandler(async (request) => {
   const response = NextResponse.json({
     user: session.user,
     tenant: session.tenant,
-    redirectTo: "/dashboard",
+    redirectTo: "/app/dashboard",
   });
 
   response.cookies.set("session", session.token, {

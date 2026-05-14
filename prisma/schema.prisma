@@ -11,6 +11,7 @@ model Tenant {
   name          String
   slug          String              @unique
   status        TenantStatus        @default(ACTIVE)
+  businessType  BusinessType        @default(AUTO_REPAIR)
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @default(now()) @updatedAt
   logoUrl       String?
@@ -23,6 +24,7 @@ model Tenant {
   users         User[]
 
   @@index([status])
+  @@index([businessType])
 }
 
 model User {
@@ -143,6 +145,16 @@ model PaymentEvent {
 enum TenantStatus {
   ACTIVE
   SUSPENDED
+}
+
+enum BusinessType {
+  AUTO_REPAIR
+  RETAIL
+  RESTAURANT
+  HEALTHCARE
+  EDUCATION
+  SERVICES
+  GENERIC
 }
 
 enum UserRole {

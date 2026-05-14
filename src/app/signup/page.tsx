@@ -19,6 +19,9 @@ export default function SignupPage() {
   const [supportEmail, setSupportEmail] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const loginHref = tenantSlug.trim()
+    ? `/login?tenant=${encodeURIComponent(tenantSlug.trim())}`
+    : "/app";
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -160,7 +163,7 @@ export default function SignupPage() {
 
         <p className="mt-5 text-center text-sm text-slate-400">
           Ja tem conta?{" "}
-          <Link className="font-semibold text-cyan-300" href="/login">
+          <Link className="font-semibold text-cyan-300" href={loginHref}>
             Entrar
           </Link>
         </p>

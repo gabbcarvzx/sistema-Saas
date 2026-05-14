@@ -2,7 +2,10 @@ import { cookies, headers } from "next/headers";
 import { verifyAuthToken } from "@/lib/auth/jwt";
 import { getTenantAccessBySlug, assertTenantAccess } from "@/lib/billing/access";
 import { NotFoundError, UnauthorizedError } from "@/lib/http-errors";
-import { resolveTenantSlug } from "@/lib/tenant-resolver";
+import {
+  resolveTenantSlug,
+  resolveTenantSlugFromTrustedHeaders,
+} from "@/lib/tenant-resolver";
 
 export type TenantContext = {
   id: string;
@@ -78,7 +81,7 @@ async function getTenantIdentityBySlug(
 
 export async function getTenantContext() {
   const requestHeaders = headers();
-  const slug = resolveTenantSlug(requestHeaders);
+  const slug = resolveTenantSlugFromTrustedHeaders(requestHeaders);
   const sessionToken = cookies().get("session")?.value;
 
   return getTenantContextBySlug(slug, sessionToken);

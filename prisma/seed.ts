@@ -139,11 +139,13 @@ async function main() {
     update: {
       name: DEFAULT_TENANT_NAME,
       status: "ACTIVE",
+      businessType: "AUTO_REPAIR",
     },
     create: {
       name: DEFAULT_TENANT_NAME,
       slug: DEFAULT_TENANT_SLUG,
       status: "ACTIVE",
+      businessType: "AUTO_REPAIR",
       primaryColor: "#22d3ee",
       supportEmail: process.env.SUPPORT_EMAIL ?? null,
       subscription: {

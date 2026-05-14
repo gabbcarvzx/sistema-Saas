@@ -9,6 +9,10 @@ type ApiError = {
   errors?: Record<string, string[]>;
 };
 
+type LoginResponse = {
+  redirectTo?: string;
+};
+
 export default function LoginPage() {
   const [tenantSlug, setTenantSlug] = useState("");
   const [email, setEmail] = useState("");
@@ -17,7 +21,9 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    setTenantSlug(new URLSearchParams(window.location.search).get("tenant") ?? "");
+    setTenantSlug(
+      new URLSearchParams(window.location.search).get("tenant") ?? "",
+    );
   }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -38,7 +44,8 @@ export default function LoginPage() {
       return;
     }
 
-    window.location.href = "/dashboard";
+    const body = (await response.json().catch(() => ({}))) as LoginResponse;
+    window.location.href = body.redirectTo ?? "/app/dashboard";
   }
 
   return (

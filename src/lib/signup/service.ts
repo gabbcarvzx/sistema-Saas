@@ -47,6 +47,7 @@ export async function signupTenant(input: SignupInput) {
       data: {
         name: input.companyName,
         slug: input.tenantSlug,
+        businessType: "AUTO_REPAIR",
         logoUrl: input.logoUrl,
         primaryColor: input.primaryColor,
         supportEmail: input.supportEmail ?? input.adminEmail,
