@@ -2,6 +2,7 @@
   "name": "estoque-oficina",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 3000",
     "build": "next build",
@@ -9,6 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:watch": "vitest",
     "db:check": "tsx scripts/check-db.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
@@ -38,18 +40,21 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^5.1.0",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.35",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5",
+    "vite": "^7.3.3",
     "vitest": "^4.1.6"
   }
 }

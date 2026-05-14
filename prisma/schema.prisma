@@ -11,13 +11,13 @@ model Tenant {
   name          String
   slug          String              @unique
   status        TenantStatus        @default(ACTIVE)
-  businessType  BusinessType        @default(AUTO_REPAIR)
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @default(now()) @updatedAt
   logoUrl       String?
   primaryColor  String              @default("#22d3ee")
   supportEmail  String?
   settings      Json                @default("{}")
+  businessType  BusinessType        @default(AUTO_REPAIR)
   paymentEvents PaymentEvent[]
   stores        Store[]
   subscription  TenantSubscription?
