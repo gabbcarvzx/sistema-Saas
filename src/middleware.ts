@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   "/billing/blocked",
   "/api/internal/tenant-access",
   "/api/billing/webhook",
+  "/api/webhooks/mercadopago",
   "/api/login",
   "/api/signup",
   "/login",

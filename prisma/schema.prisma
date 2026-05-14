@@ -98,21 +98,22 @@ model TenantSubscription {
 }
 
 model SubscriptionPlan {
-  id            String               @id @default(uuid())
-  slug          String               @unique
-  code          PlanCode             @unique
-  name          String
-  description   String?
-  priceCents    Int                  @default(0)
-  currency      String               @default("BRL")
-  stripePriceId String?              @unique
-  trialDays     Int                  @default(14)
-  productLimit  Int?
-  storeLimit    Int?
-  isActive      Boolean              @default(true)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @default(now()) @updatedAt
-  subscriptions TenantSubscription[]
+  id                String               @id @default(uuid())
+  slug              String               @unique
+  code              PlanCode             @unique
+  name              String
+  description       String?
+  priceCents        Int                  @default(0)
+  currency          String               @default("BRL")
+  stripePriceId     String?              @unique
+  mercadoPagoPlanId String?              @unique
+  trialDays         Int                  @default(14)
+  productLimit      Int?
+  storeLimit        Int?
+  isActive          Boolean              @default(true)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @default(now()) @updatedAt
+  subscriptions     TenantSubscription[]
 
   @@index([isActive])
 }

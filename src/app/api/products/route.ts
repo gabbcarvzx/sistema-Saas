@@ -83,7 +83,7 @@ export const POST = withApiHandler(async (request) => {
     });
 
     return NextResponse.json(product, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (getPrismaErrorCode(error) === "P2002") {
       return NextResponse.json(
         { message: "Já existe um produto com este código." },

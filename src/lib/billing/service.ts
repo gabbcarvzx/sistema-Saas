@@ -15,6 +15,7 @@ type CreateTenantCheckoutInput = {
   tenantSlug: string;
   plan: PaidPlanCode;
   provider: PaymentProviderCode;
+  payerEmail?: string;
   successUrl: string;
   cancelUrl: string;
 };
@@ -26,7 +27,11 @@ export async function createTenantCheckoutSession(
     where: { code: input.plan },
     select: {
       code: true,
+      name: true,
+      priceCents: true,
+      currency: true,
       stripePriceId: true,
+      mercadoPagoPlanId: true,
       isActive: true,
     },
   });
@@ -44,9 +49,24 @@ export async function createTenantCheckoutSession(
     );
   }
 
+  const adminUser = await prisma.user.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      role: "ADMIN",
+    },
+    select: {
+      email: true,
+    },
+  });
+
   return createCheckoutSession({
     ...input,
-    priceId: plan.stripePriceId ?? "",
+    planName: plan.name,
+    priceCents: plan.priceCents,
+    currency: plan.currency,
+    stripePriceId: plan.stripePriceId ?? undefined,
+    mercadoPagoPlanId: plan.mercadoPagoPlanId,
+    payerEmail: input.payerEmail ?? adminUser?.email,
   });
 }
 
@@ -62,6 +82,13 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
           select: { id: true },
         })
       : null;
+
+  const plan = event.plan
+    ? await prisma.subscriptionPlan.findUnique({
+        where: { code: event.plan },
+        select: { id: true },
+      })
+    : null;
 
   await prisma.paymentEvent.upsert({
     where: {
@@ -112,12 +139,13 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
 
   await prisma.tenantSubscription.update({
     where: { tenantId: tenant.id },
-      data: {
-        status: event.subscriptionStatus,
-        provider: event.provider,
-        providerCustomerId: event.providerCustomerId,
-        providerSubscriptionId: event.providerSubscriptionId,
-        currentPeriodEnd: event.currentPeriodEnd,
+    data: {
+      planId: plan?.id,
+      status: event.subscriptionStatus,
+      provider: event.provider,
+      providerCustomerId: event.providerCustomerId,
+      providerSubscriptionId: event.providerSubscriptionId,
+      currentPeriodEnd: event.currentPeriodEnd,
       blockedAt:
         event.subscriptionStatus === "BLOCKED" ||
         event.subscriptionStatus === "CANCELED"

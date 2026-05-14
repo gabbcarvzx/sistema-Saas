@@ -63,7 +63,6 @@ export function evaluateTenantAccess(
   }
 
   if (
-    tenant.subscription.blockedAt ||
     tenant.subscription.status === "BLOCKED" ||
     tenant.subscription.status === "CANCELED"
   ) {

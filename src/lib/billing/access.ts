@@ -14,7 +14,15 @@ async function markSubscriptionExpired(access: TenantAccessResult) {
   }
 
   if (
-    access.subscriptionStatus === "BLOCKED"
+    access.reason !== "TRIAL_EXPIRED" &&
+    access.reason !== "PLAN_EXPIRED"
+  ) {
+    return;
+  }
+
+  if (
+    access.subscriptionStatus === "BLOCKED" ||
+    access.subscriptionStatus === "CANCELED"
   ) {
     return;
   }

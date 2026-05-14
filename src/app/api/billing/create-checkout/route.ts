@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const checkoutSchema = z.object({
-  provider: paymentProviderSchema.default("STRIPE"),
+  provider: paymentProviderSchema.default("MERCADO_PAGO"),
   plan: paidPlanSchema,
   payerEmail: z.string().email().optional(),
   successUrl: z.string().url(),

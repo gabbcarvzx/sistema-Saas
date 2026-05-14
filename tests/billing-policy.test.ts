@@ -82,4 +82,20 @@ describe("evaluateTenantAccess", () => {
     expect(access.allowed).toBe(false);
     expect(access.reason).toBe("PLAN_EXPIRED");
   });
+
+  it("allows active paid plan even when blockedAt has stale audit data", () => {
+    const access = evaluateTenantAccess(
+      tenant({
+        id: "sub-1",
+        status: "ACTIVE",
+        trialEndsAt: null,
+        currentPeriodEnd: new Date("2026-05-20T12:00:00.000Z"),
+        blockedAt: new Date("2026-05-01T12:00:00.000Z"),
+      }),
+      now,
+    );
+
+    expect(access.allowed).toBe(true);
+    expect(access.reason).toBe("PLAN_ACTIVE");
+  });
 });
