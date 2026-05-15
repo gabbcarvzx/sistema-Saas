@@ -24,9 +24,28 @@ function isProtectedAppPath(pathname: string) {
   );
 }
 
+function normalizeSlug(value: string | null | undefined) {
+  const slug = value?.trim().toLowerCase();
+
+  if (!slug) {
+    return null;
+  }
+
+  return slug.replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-");
+}
+
+function resolveTenantForMiddleware(request: NextRequest) {
+  return (
+    normalizeSlug(request.nextUrl.searchParams.get("tenant")) ??
+    normalizeSlug(request.cookies.get("tenantSlug")?.value) ??
+    resolveTenantSlug(request.headers, request.nextUrl)
+  );
+}
+
 function planBlockedResponse(request: NextRequest, access: TenantAccessResponse) {
   const blockedUrl = request.nextUrl.clone();
   blockedUrl.pathname = "/billing/blocked";
+  blockedUrl.search = "";
   blockedUrl.searchParams.set("tenant", access.tenantSlug);
   blockedUrl.searchParams.set("reason", access.reason);
 
@@ -49,7 +68,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const tenantSlug = resolveTenantSlug(request.headers, request.nextUrl);
+  const tenantSlug = resolveTenantForMiddleware(request);
   const internalAccessSecret = getInternalAccessSecret();
 
   if (!internalAccessSecret) {
