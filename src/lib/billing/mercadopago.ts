@@ -52,12 +52,6 @@ type JsonObject = Record<string, unknown>;
 
 const DEFAULT_WEBHOOK_TOLERANCE_MS = 10 * 60 * 1000;
 
-const MERCADO_PAGO_PLAN_ENV: Record<MercadoPagoPlanCode, string> = {
-  STARTER: "MERCADO_PAGO_PLAN_STARTER",
-  PROFESSIONAL: "MERCADO_PAGO_PLAN_PROFESSIONAL",
-  ENTERPRISE: "MERCADO_PAGO_PLAN_ENTERPRISE",
-};
-
 function requireEnv(name: string) {
   const value = process.env[name];
 
@@ -88,24 +82,6 @@ function getWebhookUrl(successUrl: string) {
     process.env.MERCADO_PAGO_WEBHOOK_URL ??
     `${new URL(successUrl).origin}/api/webhooks/mercadopago`
   );
-}
-
-function getMercadoPagoPlanId(input: MercadoPagoCheckoutInput) {
-  if (input.mercadoPagoPlanId?.trim()) {
-    return input.mercadoPagoPlanId.trim();
-  }
-
-  const envName = MERCADO_PAGO_PLAN_ENV[input.plan];
-  const planId = process.env[envName]?.trim();
-
-  if (!planId) {
-    throw new ConfigurationError(
-      `Configure ${envName} com o ID do plano recorrente do Mercado Pago.`,
-      { plan: input.plan },
-    );
-  }
-
-  return planId;
 }
 
 function externalReference(input: MercadoPagoCheckoutInput) {
@@ -252,18 +228,16 @@ export async function createMercadoPagoRecurringSubscription(
   }
 
   const preApproval = new PreApproval(getMercadoPagoClient());
-  const mercadoPagoPlanId = getMercadoPagoPlanId(input);
   const amount = amountFromCents(input.amountCents);
 
   try {
     const result = await preApproval.create({
       body: {
-        preapproval_plan_id: mercadoPagoPlanId,
         reason: input.planName,
         external_reference: externalReference(input),
         payer_email: input.payerEmail,
         back_url: input.successUrl,
-        status: "authorized",
+        status: "pending",
         auto_recurring: {
           frequency: 1,
           frequency_type: "months",
@@ -449,6 +423,10 @@ function mapPaymentStatus(status: string | undefined) {
 function mapPreApprovalStatus(status: string | undefined) {
   if (status === "authorized" || status === "active") {
     return "ACTIVE" as const;
+  }
+
+  if (status === "pending") {
+    return "TRIAL" as const;
   }
 
   if (status === "cancelled" || status === "canceled") {

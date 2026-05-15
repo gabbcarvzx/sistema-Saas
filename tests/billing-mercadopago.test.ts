@@ -139,7 +139,6 @@ describe("Mercado Pago billing", () => {
     vi.clearAllMocks();
     resetMercadoPagoEnv();
     process.env.MERCADO_PAGO_ACCESS_TOKEN = "TEST_ACCESS_TOKEN";
-    process.env.MERCADO_PAGO_PLAN_PROFESSIONAL = "mp-plan-professional";
     process.env.MERCADO_PAGO_WEBHOOK_SECRET = "mp-webhook-secret";
     process.env.MERCADO_PAGO_WEBHOOK_TOLERANCE_MS = "600000";
   });
@@ -148,7 +147,7 @@ describe("Mercado Pago billing", () => {
     resetMercadoPagoEnv();
   });
 
-  it("createTenantCheckoutSession cria preapproval e persiste provider/subscription no tenant", async () => {
+  it("createTenantCheckoutSession cria preapproval pendente e persiste provider/subscription no tenant", async () => {
     mockCheckoutDatabase();
     mocks.preApprovalCreate.mockResolvedValue({
       id: "preapproval-1",
@@ -170,13 +169,12 @@ describe("Mercado Pago billing", () => {
 
     expect(mocks.preApprovalCreate).toHaveBeenCalledWith({
       body: expect.objectContaining({
-        preapproval_plan_id: "mp-plan-professional",
         external_reference:
           "tenant:tenant-1;slug:tenant-a;plan:PROFESSIONAL",
         payer_email: "admin@tenant.test",
         back_url: "https://stockpro.test/app/billing?checkout=success",
         reason: "Pro",
-        status: "authorized",
+        status: "pending",
         auto_recurring: {
           frequency: 1,
           frequency_type: "months",
@@ -188,6 +186,10 @@ describe("Mercado Pago billing", () => {
         idempotencyKey: expect.any(String),
       },
     });
+
+    const firstCall = mocks.preApprovalCreate.mock.calls[0]?.[0];
+
+    expect(firstCall.body).not.toHaveProperty("preapproval_plan_id");
 
     expect(mocks.prisma.tenantSubscription.upsert).toHaveBeenCalledWith({
       where: { tenantId: "tenant-1" },
@@ -221,19 +223,25 @@ describe("Mercado Pago billing", () => {
     expect(mocks.preApprovalCreate).not.toHaveBeenCalled();
   });
 
-  it("falha com erro claro quando falta MERCADO_PAGO_PLAN do plano escolhido", async () => {
+  it("cria checkout mesmo sem MERCADO_PAGO_PLAN porque usa assinatura sem plano associado", async () => {
     mockCheckoutDatabase();
     delete process.env.MERCADO_PAGO_PLAN_PROFESSIONAL;
+
+    mocks.preApprovalCreate.mockResolvedValue({
+      id: "preapproval-1",
+      init_point: "https://www.mercadopago.com.br/subscriptions/checkout",
+    });
 
     const { createTenantCheckoutSession } = await import(
       "../src/lib/billing/service"
     );
 
-    await expect(createTenantCheckoutSession(checkoutInput())).rejects.toThrow(
-      "Configure MERCADO_PAGO_PLAN_PROFESSIONAL",
-    );
+    await expect(createTenantCheckoutSession(checkoutInput())).resolves.toMatchObject({
+      provider: "MERCADO_PAGO",
+      providerSubscriptionId: "preapproval-1",
+    });
 
-    expect(mocks.preApprovalCreate).not.toHaveBeenCalled();
+    expect(mocks.preApprovalCreate).toHaveBeenCalledTimes(1);
   });
 
   it("webhook com assinatura invalida retorna 401", async () => {
