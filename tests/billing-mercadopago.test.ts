@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  fetch: vi.fn(),
   paymentGet: vi.fn(),
   preApprovalCreate: vi.fn(),
   preApprovalGet: vi.fn(),
@@ -83,6 +84,35 @@ function resetMercadoPagoEnv() {
   }
 }
 
+function mercadoPagoResponse(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function mockMercadoPagoPreApprovalSuccess() {
+  mocks.fetch.mockResolvedValue(
+    mercadoPagoResponse(201, {
+      id: "preapproval-1",
+      init_point: "https://www.mercadopago.com.br/subscriptions/checkout",
+      status: "pending",
+      external_reference: "tenant:tenant-1;slug:tenant-a;plan:PROFESSIONAL",
+    }),
+  );
+}
+
+function lastMercadoPagoPreApprovalPayload() {
+  const init = mocks.fetch.mock.calls.at(-1)?.[1] as RequestInit | undefined;
+  const body = init?.body;
+
+  if (typeof body !== "string") {
+    throw new Error("Mercado Pago fetch body missing.");
+  }
+
+  return JSON.parse(body) as Record<string, unknown>;
+}
+
 function mockCheckoutDatabase() {
   mocks.prisma.subscriptionPlan.findUnique.mockResolvedValue({
     id: "plan-professional",
@@ -147,6 +177,7 @@ function signedMercadoPagoRequest(rawBody: string, dataId: string) {
 describe("Mercado Pago billing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("fetch", mocks.fetch);
     resetMercadoPagoEnv();
     process.env.MERCADO_PAGO_ACCESS_TOKEN = "TEST_ACCESS_TOKEN";
     process.env.MERCADO_PAGO_WEBHOOK_SECRET = "mp-webhook-secret";
@@ -154,15 +185,13 @@ describe("Mercado Pago billing", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     resetMercadoPagoEnv();
   });
 
   it("createTenantCheckoutSession cria preapproval pendente e persiste provider/subscription no tenant", async () => {
     mockCheckoutDatabase();
-    mocks.preApprovalCreate.mockResolvedValue({
-      id: "preapproval-1",
-      init_point: "https://www.mercadopago.com.br/subscriptions/checkout",
-    });
+    mockMercadoPagoPreApprovalSuccess();
 
     const { createTenantCheckoutSession } = await import(
       "../src/lib/billing/service"
@@ -177,30 +206,36 @@ describe("Mercado Pago billing", () => {
       providerSubscriptionId: "preapproval-1",
     });
 
-    expect(mocks.preApprovalCreate).toHaveBeenCalledWith({
-      body: expect.objectContaining({
-        external_reference:
-          "tenant:tenant-1;slug:tenant-a;plan:PROFESSIONAL",
-        payer_email: "admin@tenant.test",
-        back_url: "https://stockpro.test/app/billing?checkout=success",
-        reason: "Pro",
-        status: "pending",
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: "months",
-          end_date: expect.any(String),
-          transaction_amount: 79,
-          currency_id: "BRL",
-        },
+    const payload = lastMercadoPagoPreApprovalPayload();
+
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      "https://api.mercadopago.com/preapproval",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer TEST_ACCESS_TOKEN",
+          "Content-Type": "application/json",
+        }),
       }),
-      requestOptions: {
-        idempotencyKey: expect.any(String),
+    );
+
+    expect(payload).toMatchObject({
+      external_reference: "tenant:tenant-1;slug:tenant-a;plan:PROFESSIONAL",
+      payer_email: "admin@tenant.test",
+      back_url: "https://stockpro.test/app/billing?checkout=success",
+      reason: "Pro",
+      status: "pending",
+      auto_recurring: {
+        frequency: 1,
+        frequency_type: "months",
+        end_date: expect.any(String),
+        transaction_amount: 79,
+        currency_id: "BRL",
       },
     });
 
-    const firstCall = mocks.preApprovalCreate.mock.calls[0]?.[0];
-
-    expect(firstCall.body).not.toHaveProperty("preapproval_plan_id");
+    expect(payload).not.toHaveProperty("preapproval_plan_id");
+    expect(payload).not.toHaveProperty("notification_url");
 
     expect(mocks.prisma.tenantSubscription.upsert).toHaveBeenCalledWith({
       where: { tenantId: "tenant-1" },
@@ -232,6 +267,7 @@ describe("Mercado Pago billing", () => {
     );
 
     expect(mocks.preApprovalCreate).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
   it("falha com erro claro quando falta email do pagador", async () => {
@@ -250,16 +286,14 @@ describe("Mercado Pago billing", () => {
     ).rejects.toThrow("Nao foi possivel identificar o email do pagador.");
 
     expect(mocks.preApprovalCreate).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
   it("cria checkout mesmo sem MERCADO_PAGO_PLAN porque usa assinatura sem plano associado", async () => {
     mockCheckoutDatabase();
     delete process.env.MERCADO_PAGO_PLAN_PROFESSIONAL;
 
-    mocks.preApprovalCreate.mockResolvedValue({
-      id: "preapproval-1",
-      init_point: "https://www.mercadopago.com.br/subscriptions/checkout",
-    });
+    mockMercadoPagoPreApprovalSuccess();
 
     const { createTenantCheckoutSession } = await import(
       "../src/lib/billing/service"
@@ -270,7 +304,50 @@ describe("Mercado Pago billing", () => {
       providerSubscriptionId: "preapproval-1",
     });
 
-    expect(mocks.preApprovalCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("captura e loga body completo quando Mercado Pago retorna 400", async () => {
+    mockCheckoutDatabase();
+    mocks.fetch.mockResolvedValue(
+      mercadoPagoResponse(400, {
+        message: "Both payer and collector must be real or test users",
+        error: "bad_request",
+        cause: [
+          {
+            code: "invalid_users",
+            description: "Buyer and seller must be test users from same site.",
+          },
+        ],
+      }),
+    );
+
+    const { createTenantCheckoutSession } = await import(
+      "../src/lib/billing/service"
+    );
+
+    await expect(createTenantCheckoutSession(checkoutInput())).rejects.toThrow(
+      "Mercado Pago recusou a criacao da assinatura.",
+    );
+
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      "mercado_pago.preapproval.failed",
+      expect.objectContaining({
+        tenantId: "tenant-1",
+        tenantSlug: "tenant-a",
+        plan: "PROFESSIONAL",
+        payerEmail: "ad***@tenant.test",
+        status: 400,
+        mercadoPagoMessage:
+          "Both payer and collector must be real or test users",
+        mercadoPagoError: "bad_request",
+        responseBody: expect.objectContaining({
+          message: "Both payer and collector must be real or test users",
+          error: "bad_request",
+          cause: expect.any(Array),
+        }),
+      }),
+    );
   });
 
   it("rota create-checkout usa tenant da sessao e ignora tenant da query", async () => {
@@ -280,11 +357,7 @@ describe("Mercado Pago billing", () => {
       slug: "tenant-a",
       name: "Tenant A",
     });
-    mocks.preApprovalCreate.mockResolvedValue({
-      id: "preapproval-1",
-      init_point: "https://www.mercadopago.com.br/subscriptions/checkout",
-      api_response: { status: 201 },
-    });
+    mockMercadoPagoPreApprovalSuccess();
 
     const { POST } = await import(
       "../src/app/api/billing/create-checkout/route"
@@ -307,15 +380,10 @@ describe("Mercado Pago billing", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(mocks.preApprovalCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.objectContaining({
-          external_reference:
-            "tenant:tenant-1;slug:tenant-a;plan:PROFESSIONAL",
-          back_url: "https://stockpro.test/app/billing?checkout=success",
-        }),
-      }),
-    );
+    expect(lastMercadoPagoPreApprovalPayload()).toMatchObject({
+      external_reference: "tenant:tenant-1;slug:tenant-a;plan:PROFESSIONAL",
+      back_url: "https://stockpro.test/app/billing?checkout=success",
+    });
   });
 
   it("webhook com assinatura invalida retorna 401", async () => {

@@ -10,6 +10,7 @@ import {
   ConfigurationError,
   UnauthorizedError,
 } from "@/lib/http-errors";
+import { logger } from "@/lib/logger";
 
 type MercadoPagoPlanCode = "STARTER" | "PROFESSIONAL" | "ENTERPRISE";
 
@@ -50,15 +51,25 @@ type MercadoPagoWebhookEvent = {
 };
 
 type JsonObject = Record<string, unknown>;
+type SafeLogValue =
+  | string
+  | number
+  | boolean
+  | null
+  | SafeLogValue[]
+  | { [key: string]: SafeLogValue | undefined };
 
 const DEFAULT_WEBHOOK_TOLERANCE_MS = 10 * 60 * 1000;
 const DEFAULT_SUBSCRIPTION_DURATION_YEARS = 10;
+const MERCADO_PAGO_PREAPPROVAL_URL =
+  "https://api.mercadopago.com/preapproval";
 
 type SafeMercadoPagoErrorPayload = {
   message?: string;
   status?: number;
-  cause?: unknown;
+  cause?: SafeLogValue;
   error?: string;
+  responseBody?: SafeLogValue;
 };
 
 function requireEnv(name: string) {
@@ -110,6 +121,59 @@ function getSubscriptionEndDate() {
   return endDate.toISOString();
 }
 
+function maskEmail(email: string) {
+  const [localPart = "", domain = ""] = email.split("@");
+  const visible = localPart.slice(0, 2);
+  const maskedLocal = `${visible}${"*".repeat(Math.max(localPart.length - 2, 3))}`;
+
+  return domain ? `${maskedLocal}@${domain}` : maskedLocal;
+}
+
+function assertPublicHttpsUrl(value: string, fieldName: string) {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new AppError(
+      "BILLING_PUBLIC_URL_INVALID",
+      `Configure ${fieldName} com uma URL HTTPS publica.`,
+      500,
+      { message: `${fieldName} invalida.` },
+    );
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new AppError(
+      "BILLING_PUBLIC_URL_INVALID",
+      `Configure ${fieldName} com uma URL HTTPS publica.`,
+      500,
+      {
+        message: `${fieldName} precisa usar HTTPS para o Mercado Pago.`,
+        cause: { protocol: parsed.protocol, origin: parsed.origin },
+      },
+    );
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1"
+  ) {
+    throw new AppError(
+      "BILLING_PUBLIC_URL_INVALID",
+      `Configure ${fieldName} com uma URL HTTPS publica.`,
+      500,
+      {
+        message: `${fieldName} nao pode apontar para localhost.`,
+        cause: { origin: parsed.origin },
+      },
+    );
+  }
+}
+
 function externalReference(input: MercadoPagoCheckoutInput) {
   return [
     `tenant:${input.tenantId}`,
@@ -159,7 +223,10 @@ function safeNumber(value: unknown) {
     : undefined;
 }
 
-function redactMercadoPagoValue(value: unknown, depth = 0): unknown {
+function redactMercadoPagoValue(
+  value: unknown,
+  depth = 0,
+): SafeLogValue | undefined {
   if (depth > 4) {
     return "[truncated]";
   }
@@ -174,7 +241,9 @@ function redactMercadoPagoValue(value: unknown, depth = 0): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => redactMercadoPagoValue(item, depth + 1));
+    return value
+      .map((item) => redactMercadoPagoValue(item, depth + 1))
+      .filter((item): item is SafeLogValue => item !== undefined);
   }
 
   if (value && typeof value === "object") {
@@ -185,7 +254,7 @@ function redactMercadoPagoValue(value: unknown, depth = 0): unknown {
           key,
           redactMercadoPagoValue(item, depth + 1),
         ]),
-    );
+    ) as { [key: string]: SafeLogValue | undefined };
   }
 
   return String(value);
@@ -199,11 +268,9 @@ function mercadoPagoErrorPayload(error: unknown): SafeMercadoPagoErrorPayload {
     return {
       message: safeText(record.message),
       status: safeNumber(record.status) ?? safeNumber(apiResponse?.status),
-      cause:
-        record.cause === undefined
-          ? undefined
-          : redactMercadoPagoValue(record.cause),
+      cause: redactMercadoPagoValue(record.cause),
       error: safeText(record.error),
+      responseBody: redactMercadoPagoValue(record.responseBody),
     };
   }
 
@@ -225,6 +292,7 @@ type PreApprovalCreateResult = {
   init_point?: string;
   sandbox_init_point?: string;
   status?: string;
+  external_reference?: string;
   api_response?: {
     status?: number;
   };
@@ -254,6 +322,186 @@ function assertCheckoutUrl(value: string | undefined, message: string) {
   }
 
   return value;
+}
+
+type MercadoPagoPreApprovalPayload = {
+  reason: string;
+  external_reference: string;
+  payer_email: string;
+  back_url: string;
+  status: "pending";
+  auto_recurring: {
+    frequency: 1;
+    frequency_type: "months";
+    end_date: string;
+    transaction_amount: number;
+    currency_id: string;
+  };
+};
+
+type MercadoPagoPreApprovalFetchInput = MercadoPagoCheckoutInput & {
+  accessToken: string;
+};
+
+function buildMercadoPagoPreApprovalPayload(
+  input: MercadoPagoCheckoutInput & { payerEmail: string },
+): MercadoPagoPreApprovalPayload {
+  const amount = amountFromCents(input.amountCents);
+  const currency = currencyId(input.currency);
+
+  if (amount <= 0) {
+    throw new AppError(
+      "BILLING_PRICE_INVALID",
+      "Plano Mercado Pago precisa ter preco maior que zero.",
+      500,
+      { plan: input.plan },
+    );
+  }
+
+  if (currency !== "BRL") {
+    throw new AppError(
+      "BILLING_CURRENCY_INVALID",
+      "Mercado Pago recorrente esta configurado para cobrancas em BRL.",
+      500,
+      { plan: input.plan, currency },
+    );
+  }
+
+  assertPublicHttpsUrl(input.successUrl, "APP_URL");
+
+  return {
+    reason: input.planName,
+    external_reference: externalReference(input),
+    payer_email: input.payerEmail,
+    back_url: input.successUrl,
+    status: "pending",
+    auto_recurring: {
+      frequency: 1,
+      frequency_type: "months",
+      end_date: getSubscriptionEndDate(),
+      transaction_amount: amount,
+      currency_id: currency,
+    },
+  };
+}
+
+function mercadoPagoLogContext(
+  input: MercadoPagoCheckoutInput & { payerEmail: string },
+) {
+  return {
+    tenantId: input.tenantId,
+    tenantSlug: input.tenantSlug,
+    provider: "MERCADO_PAGO",
+    plan: input.plan,
+    payerEmail: maskEmail(input.payerEmail),
+  };
+}
+
+async function readMercadoPagoResponseBody(response: Response) {
+  const text = await response.text().catch(() => "");
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return { message: text };
+  }
+}
+
+function mercadoPagoBodyDetails(
+  status: number,
+  body: unknown,
+): SafeMercadoPagoErrorPayload {
+  const objectBody =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+
+  return {
+    status,
+    message: safeText(objectBody.message),
+    error: safeText(objectBody.error),
+    cause: redactMercadoPagoValue(objectBody.cause),
+    responseBody: redactMercadoPagoValue(body),
+  };
+}
+
+export async function createMercadoPagoPreApprovalWithFetch(
+  input: MercadoPagoPreApprovalFetchInput,
+): Promise<PreApprovalCreateResult> {
+  if (!input.payerEmail) {
+    throw new AppError(
+      "BILLING_PAYER_EMAIL_REQUIRED",
+      "Informe o email do pagador para criar assinatura recorrente.",
+      400,
+    );
+  }
+
+  const payload = buildMercadoPagoPreApprovalPayload({
+    ...input,
+    payerEmail: input.payerEmail,
+  });
+
+  logger.info("mercado_pago.preapproval.payload_ready", {
+    ...mercadoPagoLogContext({ ...input, payerEmail: input.payerEmail }),
+    status: payload.status,
+    transactionAmount: payload.auto_recurring.transaction_amount,
+    currencyId: payload.auto_recurring.currency_id,
+    backUrlOrigin: new URL(payload.back_url).origin,
+    hasEndDate: Boolean(payload.auto_recurring.end_date),
+    hasPreapprovalPlanId: false,
+  });
+
+  const response = await fetch(MERCADO_PAGO_PREAPPROVAL_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-Idempotency-Key": randomUUID(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await readMercadoPagoResponseBody(response);
+
+  if (!response.ok) {
+    const details = mercadoPagoBodyDetails(response.status, body);
+
+    logger.error("mercado_pago.preapproval.failed", {
+      ...mercadoPagoLogContext({ ...input, payerEmail: input.payerEmail }),
+      status: response.status,
+      mercadoPagoMessage: details.message,
+      mercadoPagoError: details.error,
+      mercadoPagoCause: details.cause,
+      responseBody: details.responseBody,
+    });
+
+    throw new AppError(
+      "MERCADO_PAGO_PREAPPROVAL_FAILED",
+      "Mercado Pago recusou a criacao da assinatura.",
+      502,
+      details,
+    );
+  }
+
+  const result =
+    body && typeof body === "object" ? (body as PreApprovalCreateResult) : {};
+
+  logger.info("mercado_pago.preapproval.created", {
+    ...mercadoPagoLogContext({ ...input, payerEmail: input.payerEmail }),
+    status: response.status,
+    mercadoPagoStatus: result.status,
+    providerSubscriptionId: result.id,
+  });
+
+  return {
+    ...result,
+    api_response: {
+      status: response.status,
+    },
+  };
 }
 
 export async function createMercadoPagoPreference(
@@ -334,27 +582,12 @@ export async function createMercadoPagoRecurringSubscription(
     );
   }
 
-  const preApproval = new PreApproval(getMercadoPagoClient());
-  const amount = amountFromCents(input.amountCents);
-
   try {
-    const result = (await preApproval.create({
-      body: {
-        reason: input.planName,
-        external_reference: externalReference(input),
-        payer_email: input.payerEmail,
-        back_url: input.successUrl,
-        status: "pending",
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: "months",
-          end_date: getSubscriptionEndDate(),
-          transaction_amount: amount,
-          currency_id: currencyId(input.currency),
-        },
-      },
-      requestOptions: { idempotencyKey: randomUUID() },
-    })) as PreApprovalCreateResult;
+    const result = await createMercadoPagoPreApprovalWithFetch({
+      ...input,
+      accessToken: requireEnv("MERCADO_PAGO_ACCESS_TOKEN"),
+      payerEmail: input.payerEmail,
+    });
 
     const checkoutUrl = assertCheckoutUrl(
       getPreApprovalCheckoutUrl(result),
