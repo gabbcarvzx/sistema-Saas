@@ -29,6 +29,13 @@ function optionalProviderId(value: string | null | undefined) {
 export async function createTenantCheckoutSession(
   input: CreateTenantCheckoutInput,
 ): Promise<CheckoutResponse> {
+  logger.info("billing.checkout.start", {
+    tenantId: input.tenantId,
+    tenantSlug: input.tenantSlug,
+    provider: input.provider,
+    plan: input.plan,
+  });
+
   const plan = await prisma.subscriptionPlan.findUnique({
     where: { code: input.plan },
     select: {
@@ -44,7 +51,16 @@ export async function createTenantCheckoutSession(
   });
 
   if (!plan || !plan.isActive) {
-    throw new AppError("PLAN_NOT_FOUND", "Plano nao encontrado.", 404);
+    logger.error("billing.checkout.plan_not_found", {
+      tenantId: input.tenantId,
+      plan: input.plan,
+    });
+
+    throw new AppError(
+      "PLAN_NOT_FOUND",
+      "Plano nao encontrado.",
+      404,
+    );
   }
 
   const tenant = await prisma.tenant.findUnique({
@@ -62,15 +78,26 @@ export async function createTenantCheckoutSession(
   });
 
   if (!tenant || tenant.slug !== input.tenantSlug) {
+    logger.error("billing.checkout.tenant_not_found", {
+      tenantId: input.tenantId,
+      tenantSlug: input.tenantSlug,
+    });
+
     throw new AppError(
       "TENANT_NOT_FOUND",
       "Tenant nao encontrado para esta sessao.",
       404,
     );
   }
+
   const initialStatus = tenant.subscription?.status ?? "TRIAL";
 
   if (input.provider === "STRIPE" && !plan.stripePriceId) {
+    logger.error("billing.checkout.stripe_price_missing", {
+      tenantId: tenant.id,
+      plan: input.plan,
+    });
+
     throw new AppError(
       "BILLING_PRICE_NOT_CONFIGURED",
       "Configure o priceId da Stripe para este plano.",
@@ -89,31 +116,100 @@ export async function createTenantCheckoutSession(
     },
   });
 
-  const checkout = await createCheckoutSession({
-    ...input,
-    planName: plan.name,
-    priceCents: plan.priceCents,
-    currency: plan.currency,
-    stripePriceId: plan.stripePriceId ?? undefined,
-    mercadoPagoPlanId: optionalProviderId(plan.mercadoPagoPlanId),
-    payerEmail: input.payerEmail ?? adminUser?.email,
-  });
+  const payerEmail = input.payerEmail ?? adminUser?.email;
 
-  await prisma.tenantSubscription.upsert({
-    where: { tenantId: tenant.id },
-    create: {
+  if (input.provider === "MERCADO_PAGO" && !payerEmail) {
+    logger.error("billing.checkout.payer_email_missing", {
       tenantId: tenant.id,
-      planId: plan.id,
-      status: initialStatus,
+    });
+
+    throw new AppError(
+      "BILLING_PAYER_EMAIL_REQUIRED",
+      "Nao foi possivel identificar o email do pagador.",
+      400,
+    );
+  }
+
+  let checkout: CheckoutResponse;
+
+  try {
+    checkout = await createCheckoutSession({
+      ...input,
+      planName: plan.name,
+      priceCents: plan.priceCents,
+      currency: plan.currency,
+      stripePriceId: plan.stripePriceId ?? undefined,
+      mercadoPagoPlanId: optionalProviderId(plan.mercadoPagoPlanId),
+      payerEmail,
+    });
+
+    logger.info("billing.checkout.created", {
+      tenantId: tenant.id,
+      provider: checkout.provider,
+      providerSubscriptionId: checkout.providerSubscriptionId,
+      providerPreferenceId: checkout.providerPreferenceId,
+      checkoutUrl: checkout.checkoutUrl,
+    });
+  } catch (error) {
+    logger.error("billing.checkout.failed", {
+      tenantId: tenant.id,
+      provider: input.provider,
+      plan: input.plan,
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+              stack: error.stack,
+            }
+          : error,
+    });
+
+    throw error;
+  }
+
+  try {
+    await prisma.tenantSubscription.upsert({
+      where: { tenantId: tenant.id },
+      create: {
+        tenantId: tenant.id,
+        planId: plan.id,
+        status: initialStatus,
+        provider: input.provider,
+        providerSubscriptionId: checkout.providerSubscriptionId,
+      },
+      update: {
+        planId: plan.id,
+        provider: input.provider,
+        providerSubscriptionId: checkout.providerSubscriptionId,
+      },
+    });
+
+    logger.info("billing.subscription.persisted", {
+      tenantId: tenant.id,
       provider: input.provider,
       providerSubscriptionId: checkout.providerSubscriptionId,
-    },
-    update: {
-      planId: plan.id,
+    });
+  } catch (error) {
+    logger.error("billing.subscription.persist_failed", {
+      tenantId: tenant.id,
       provider: input.provider,
-      providerSubscriptionId: checkout.providerSubscriptionId,
-    },
-  });
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+              stack: error.stack,
+            }
+          : error,
+    });
+
+    throw new AppError(
+      "BILLING_SUBSCRIPTION_PERSIST_FAILED",
+      "Falha ao salvar assinatura no banco de dados.",
+      500,
+    );
+  }
 
   return {
     ...checkout,
@@ -122,6 +218,14 @@ export async function createTenantCheckoutSession(
 }
 
 export async function processBillingWebhook(event: ParsedWebhookEvent) {
+  logger.info("billing.webhook.received", {
+    provider: event.provider,
+    providerEventId: event.providerEventId,
+    eventType: event.eventType,
+    tenantId: event.tenantId,
+    tenantSlug: event.tenantSlug,
+  });
+
   const [tenant, plan] = await Promise.all([
     event.tenantId
       ? prisma.tenant.findUnique({
@@ -134,6 +238,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
             select: { id: true },
           })
         : null,
+
     event.plan
       ? prisma.subscriptionPlan.findUnique({
           where: { code: event.plan },
@@ -151,7 +256,10 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       tenantSlug: event.tenantSlug,
     });
 
-    return { tenantId: null, subscriptionUpdated: false };
+    return {
+      tenantId: null,
+      subscriptionUpdated: false,
+    };
   }
 
   const processedAt = new Date();
@@ -163,6 +271,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
         providerEventId: event.providerEventId,
       },
     },
+
     create: {
       tenantId: tenant.id,
       provider: event.provider,
@@ -171,6 +280,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       payload: event.payload as Prisma.InputJsonValue,
       processedAt,
     },
+
     update: {
       tenantId: tenant.id,
       eventType: event.eventType,
@@ -180,28 +290,15 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
   });
 
   if (!event.subscriptionStatus) {
-    return { tenantId: tenant.id, subscriptionUpdated: false };
-  }
-
-  if (event.subscriptionStatus === "BLOCKED") {
-    logger.warn("billing.payment.failed", {
+    logger.info("billing.webhook.no_subscription_status", {
       tenantId: tenant.id,
-      provider: event.provider,
       providerEventId: event.providerEventId,
-      eventType: event.eventType,
     });
-  }
 
-  if (
-    event.subscriptionStatus === "BLOCKED" ||
-    event.subscriptionStatus === "CANCELED"
-  ) {
-    logger.warn("billing.subscription.blocked", {
+    return {
       tenantId: tenant.id,
-      provider: event.provider,
-      providerEventId: event.providerEventId,
-      status: event.subscriptionStatus,
-    });
+      subscriptionUpdated: false,
+    };
   }
 
   const existingSubscription = await prisma.tenantSubscription.findUnique({
@@ -220,16 +317,21 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       plan: event.plan,
     });
 
-    return { tenantId: tenant.id, subscriptionUpdated: false };
+    return {
+      tenantId: tenant.id,
+      subscriptionUpdated: false,
+    };
   }
 
   const isBlocked =
     event.subscriptionStatus === "BLOCKED" ||
     event.subscriptionStatus === "CANCELED";
+
   const isActive = event.subscriptionStatus === "ACTIVE";
 
   await prisma.tenantSubscription.upsert({
     where: { tenantId: tenant.id },
+
     create: {
       tenantId: tenant.id,
       planId,
@@ -242,6 +344,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
       blockedAt: isBlocked ? processedAt : null,
     },
+
     update: {
       ...(plan ? { planId: plan.id } : {}),
       status: event.subscriptionStatus,
@@ -255,5 +358,15 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
     },
   });
 
-  return { tenantId: tenant.id, subscriptionUpdated: true };
+  logger.info("billing.subscription.updated", {
+    tenantId: tenant.id,
+    provider: event.provider,
+    status: event.subscriptionStatus,
+    providerSubscriptionId: event.providerSubscriptionId,
+  });
+
+  return {
+    tenantId: tenant.id,
+    subscriptionUpdated: true,
+  };
 }
