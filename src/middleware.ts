@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAuthTokenEdge } from "@/lib/auth/edge-jwt";
-import { resolveTenantSlug } from "@/lib/tenant-resolver";
+import { DEFAULT_TENANT_SLUG, resolveTenantSlug } from "@/lib/tenant-resolver";
 
 type TenantAccessResponse = {
   allowed: boolean;
@@ -35,11 +35,24 @@ function normalizeSlug(value: string | null | undefined) {
 }
 
 function resolveTenantForMiddleware(request: NextRequest) {
-  return (
-    normalizeSlug(request.nextUrl.searchParams.get("tenant")) ??
-    normalizeSlug(request.cookies.get("tenantSlug")?.value) ??
-    resolveTenantSlug(request.headers, request.nextUrl)
-  );
+  const tenantFromQuery = normalizeSlug(request.nextUrl.searchParams.get("tenant"));
+  const tenantFromCookie = normalizeSlug(request.cookies.get("tenantSlug")?.value);
+
+  if (tenantFromQuery) {
+    return tenantFromQuery;
+  }
+
+  if (tenantFromCookie) {
+    return tenantFromCookie;
+  }
+
+  const resolved = resolveTenantSlug(request.headers, request.nextUrl);
+
+  if (resolved === "sistema-saas-kappa") {
+    return DEFAULT_TENANT_SLUG;
+  }
+
+  return resolved;
 }
 
 function planBlockedResponse(request: NextRequest, access: TenantAccessResponse) {
