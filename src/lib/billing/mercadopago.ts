@@ -51,6 +51,7 @@ type MercadoPagoWebhookEvent = {
 type JsonObject = Record<string, unknown>;
 
 const DEFAULT_WEBHOOK_TOLERANCE_MS = 10 * 60 * 1000;
+
 const MERCADO_PAGO_PLAN_ENV: Record<MercadoPagoPlanCode, string> = {
   STARTER: "MERCADO_PAGO_PLAN_STARTER",
   PROFESSIONAL: "MERCADO_PAGO_PLAN_PROFESSIONAL",
@@ -70,7 +71,7 @@ function requireEnv(name: string) {
 function getMercadoPagoClient() {
   return new MercadoPagoConfig({
     accessToken: requireEnv("MERCADO_PAGO_ACCESS_TOKEN"),
-    options: { timeout: 5000 },
+    options: { timeout: 10000 },
   });
 }
 
@@ -89,14 +90,18 @@ function getWebhookUrl(successUrl: string) {
   );
 }
 
-function getMercadoPagoPlanId(plan: MercadoPagoPlanCode) {
-  const envName = MERCADO_PAGO_PLAN_ENV[plan];
+function getMercadoPagoPlanId(input: MercadoPagoCheckoutInput) {
+  if (input.mercadoPagoPlanId?.trim()) {
+    return input.mercadoPagoPlanId.trim();
+  }
+
+  const envName = MERCADO_PAGO_PLAN_ENV[input.plan];
   const planId = process.env[envName]?.trim();
 
   if (!planId) {
     throw new ConfigurationError(
       `Configure ${envName} com o ID do plano recorrente do Mercado Pago.`,
-      { plan },
+      { plan: input.plan },
     );
   }
 
@@ -140,6 +145,31 @@ function parsePaidPlan(value: string | null | undefined) {
   return undefined;
 }
 
+function mercadoPagoErrorPayload(error: unknown) {
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+
+    return {
+      message: record.message,
+      status: record.status,
+      cause: record.cause,
+      error: record.error,
+    };
+  }
+
+  return { message: String(error) };
+}
+
+type PreferenceCreateResult = {
+  id?: string;
+  init_point?: string;
+  sandbox_init_point?: string;
+};
+
+function getPreferenceCheckoutUrl(result: PreferenceCreateResult) {
+  return result.init_point ?? result.sandbox_init_point;
+}
+
 export async function createMercadoPagoPreference(
   input: MercadoPagoCheckoutInput,
 ): Promise<MercadoPagoCheckoutResponse> {
@@ -153,7 +183,8 @@ export async function createMercadoPagoPreference(
   }
 
   const preference = new Preference(getMercadoPagoClient());
-  const result = await preference.create({
+
+  const result = (await preference.create({
     body: {
       external_reference: externalReference(input),
       metadata: {
@@ -180,9 +211,9 @@ export async function createMercadoPagoPreference(
       payer: input.payerEmail ? { email: input.payerEmail } : undefined,
     },
     requestOptions: { idempotencyKey: randomUUID() },
-  });
+  })) as PreferenceCreateResult;
 
-  const checkoutUrl = result.init_point ?? result.sandbox_init_point;
+  const checkoutUrl = getPreferenceCheckoutUrl(result);
 
   if (!checkoutUrl) {
     throw new AppError(
@@ -221,33 +252,52 @@ export async function createMercadoPagoRecurringSubscription(
   }
 
   const preApproval = new PreApproval(getMercadoPagoClient());
-  const mercadoPagoPlanId = getMercadoPagoPlanId(input.plan);
-  const result = await preApproval.create({
-    body: {
-      preapproval_plan_id: mercadoPagoPlanId,
-      reason: input.planName,
-      external_reference: externalReference(input),
-      payer_email: input.payerEmail,
-      back_url: input.successUrl,
-      status: "pending",
-    },
-    requestOptions: { idempotencyKey: randomUUID() },
-  });
+  const mercadoPagoPlanId = getMercadoPagoPlanId(input);
+  const amount = amountFromCents(input.amountCents);
 
-  if (!result.init_point) {
+  try {
+    const result = await preApproval.create({
+      body: {
+        preapproval_plan_id: mercadoPagoPlanId,
+        reason: input.planName,
+        external_reference: externalReference(input),
+        payer_email: input.payerEmail,
+        back_url: input.successUrl,
+        status: "authorized",
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: "months",
+          transaction_amount: amount,
+          currency_id: currencyId(input.currency),
+        },
+      },
+      requestOptions: { idempotencyKey: randomUUID() },
+    });
+
+    const checkoutUrl = result.init_point;
+
+    if (!checkoutUrl) {
+      throw new AppError(
+        "BILLING_SUBSCRIPTION_FAILED",
+        "Mercado Pago nao retornou URL de assinatura.",
+        502,
+      );
+    }
+
+    return {
+      provider: "MERCADO_PAGO",
+      checkoutUrl,
+      redirectUrl: checkoutUrl,
+      providerSubscriptionId: result.id,
+    };
+  } catch (error) {
     throw new AppError(
-      "BILLING_SUBSCRIPTION_FAILED",
-      "Mercado Pago nao retornou URL de assinatura.",
+      "MERCADO_PAGO_PREAPPROVAL_FAILED",
+      "Mercado Pago recusou a criacao da assinatura.",
       502,
+      mercadoPagoErrorPayload(error),
     );
   }
-
-  return {
-    provider: "MERCADO_PAGO",
-    checkoutUrl: result.init_point,
-    redirectUrl: result.init_point,
-    providerSubscriptionId: result.id,
-  };
 }
 
 function parseJson(rawBody: string): JsonObject {
@@ -414,6 +464,7 @@ function mapPreApprovalStatus(status: string | undefined) {
 
 function eventTopic(payload: JsonObject) {
   const data = nestedObject(payload.data);
+
   return [
     stringValue(payload.type),
     stringValue(payload.action),
@@ -445,6 +496,7 @@ export async function parseMercadoPagoWebhook(
     const preApproval = await new PreApproval(getMercadoPagoClient()).get({
       id: dataId,
     });
+
     const reference = parseExternalReference(preApproval.external_reference);
 
     return {
@@ -470,6 +522,7 @@ export async function parseMercadoPagoWebhook(
     const payment = await new Payment(getMercadoPagoClient()).get({
       id: dataId,
     });
+
     const reference = parseExternalReference(payment.external_reference);
     const periodBase = payment.date_approved
       ? new Date(payment.date_approved)
