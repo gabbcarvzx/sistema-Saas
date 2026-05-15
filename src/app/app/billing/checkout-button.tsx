@@ -10,10 +10,27 @@ type CheckoutButtonProps = {
 };
 
 type CheckoutResponse = {
+  code?: string;
   checkoutUrl?: string;
   redirectUrl?: string;
   message?: string;
 };
+
+function friendlyCheckoutMessage(status: number, body: CheckoutResponse) {
+  if (body.code === "BILLING_PAYER_EMAIL_REQUIRED") {
+    return "Nao conseguimos identificar o email da conta. Atualize seus dados e tente novamente.";
+  }
+
+  if (body.code === "CONFIGURATION_ERROR") {
+    return "Checkout temporariamente indisponivel. Nossa equipe precisa revisar a configuracao de pagamento.";
+  }
+
+  if (status >= 500) {
+    return "Nao foi possivel conectar ao Mercado Pago agora. Tente novamente em alguns minutos.";
+  }
+
+  return body.message ?? "Nao foi possivel iniciar o checkout.";
+}
 
 export function CheckoutButton({ label, payerEmail, plan }: CheckoutButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -23,29 +40,31 @@ export function CheckoutButton({ label, payerEmail, plan }: CheckoutButtonProps)
     setIsLoading(true);
     setFeedback(null);
 
-    const origin = window.location.origin;
-    const response = await fetch("/api/billing/create-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        provider: "MERCADO_PAGO",
-        plan,
-        payerEmail,
-        successUrl: `${origin}/app/billing?checkout=success`,
-        cancelUrl: `${origin}/app/billing?checkout=cancel`,
-      }),
-    });
-    const body = (await response.json().catch(() => ({}))) as CheckoutResponse;
+    try {
+      const response = await fetch("/api/billing/create-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "MERCADO_PAGO",
+          plan,
+          payerEmail,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as CheckoutResponse;
 
-    const redirectUrl = body.redirectUrl ?? body.checkoutUrl;
+      const redirectUrl = body.redirectUrl ?? body.checkoutUrl;
 
-    if (!response.ok || !redirectUrl) {
-      setFeedback(body.message ?? "Nao foi possivel iniciar o checkout.");
+      if (!response.ok || !redirectUrl) {
+        setFeedback(friendlyCheckoutMessage(response.status, body));
+        setIsLoading(false);
+        return;
+      }
+
+      window.location.href = redirectUrl;
+    } catch {
+      setFeedback("Nao foi possivel iniciar o checkout. Verifique sua conexao e tente novamente.");
       setIsLoading(false);
-      return;
     }
-
-    window.location.href = redirectUrl;
   }
 
   return (

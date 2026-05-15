@@ -31,16 +31,45 @@ const paidPlans = [
   },
 ];
 
+type BillingPageProps = {
+  searchParams?: {
+    checkout?: string;
+  };
+};
+
 function formatDate(date: Date | null | undefined) {
   return date
     ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium" }).format(date)
     : "Nao informado";
 }
 
-export default async function BillingPage() {
+function checkoutFeedback(checkout: string | undefined) {
+  if (checkout === "success") {
+    return {
+      tone: "success" as const,
+      title: "Pagamento em processamento",
+      message:
+        "Assim que o Mercado Pago confirmar a autorizacao, sua assinatura sera ativada automaticamente.",
+    };
+  }
+
+  if (checkout === "cancel") {
+    return {
+      tone: "warning" as const,
+      title: "Checkout cancelado",
+      message:
+        "Voce pode tentar novamente quando quiser. O acesso de recuperacao continua disponivel com sua sessao valida.",
+    };
+  }
+
+  return null;
+}
+
+export default async function BillingPage({ searchParams }: BillingPageProps) {
   const { tenant, user } = await getAppContext();
   const subscription = tenant.subscription;
   const status = subscription?.status ?? "MISSING";
+  const feedback = checkoutFeedback(searchParams?.checkout);
   const actionLabel =
     status === "BLOCKED" || status === "CANCELED"
       ? "Atualizar pagamento"
@@ -61,6 +90,19 @@ export default async function BillingPage() {
           operacionais.
         </p>
       </section>
+
+      {feedback && (
+        <section
+          className={`rounded-lg border p-4 ${
+            feedback.tone === "success"
+              ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+              : "border-amber-400/20 bg-amber-400/10 text-amber-100"
+          }`}
+        >
+          <h2 className="text-sm font-semibold">{feedback.title}</h2>
+          <p className="mt-1 text-sm leading-6">{feedback.message}</p>
+        </section>
+      )}
 
       <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
         <article className="rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-xl shadow-black/10">

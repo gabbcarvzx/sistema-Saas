@@ -12,9 +12,43 @@ const checkoutSchema = z.object({
   provider: paymentProviderSchema.default("MERCADO_PAGO"),
   plan: paidPlanSchema,
   payerEmail: z.string().email().optional(),
-  successUrl: z.string().url(),
-  cancelUrl: z.string().url(),
+  successUrl: z.string().url().optional(),
+  cancelUrl: z.string().url().optional(),
 });
+
+function billingReturnUrls(request: Request) {
+  const origin = getPublicOrigin(request);
+
+  return {
+    successUrl: `${origin}/app/billing?checkout=success`,
+    cancelUrl: `${origin}/app/billing?checkout=cancel`,
+  };
+}
+
+function getPublicOrigin(request: Request) {
+  return (
+    parseOrigin(process.env.APP_URL) ??
+    parseOrigin(process.env.NEXT_PUBLIC_APP_URL) ??
+    parseOrigin(process.env.VERCEL_URL) ??
+    new URL(request.url).origin
+  );
+}
+
+function parseOrigin(value: string | undefined) {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    return new URL(
+      trimmed.startsWith("http") ? trimmed : `https://${trimmed}`,
+    ).origin;
+  } catch {
+    return undefined;
+  }
+}
 
 export const POST = withApiHandler(async (request) => {
   const tenant = await getTenantIdentityFromRequest(request);
@@ -29,6 +63,7 @@ export const POST = withApiHandler(async (request) => {
 
   const checkout = await createTenantCheckoutSession({
     ...parsed.data,
+    ...billingReturnUrls(request),
     tenantId: tenant.id,
     tenantSlug: tenant.slug,
   });

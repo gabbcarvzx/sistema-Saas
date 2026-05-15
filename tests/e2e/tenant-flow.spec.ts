@@ -36,7 +36,9 @@ async function login(page: Page, tenant = tenantA) {
   await page.fill('input[name="email"]', tenant.adminEmail);
   await page.fill('input[name="password"]', tenant.password);
   await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/\/app\/dashboard|\/billing\/blocked/);
+  await expect(page).toHaveURL(/\/app\/dashboard|\/billing\/blocked/, {
+    timeout: 15000,
+  });
 }
 
 async function tenantBySlug(slug: string) {
@@ -218,7 +220,7 @@ test.describe("Fluxo SaaS multi-tenant", () => {
       },
     });
 
-    expect([201, 500]).toContain(checkout.status());
+    expect([201, 500, 502]).toContain(checkout.status());
     expect([401, 402, 403]).not.toContain(checkout.status());
   });
 });

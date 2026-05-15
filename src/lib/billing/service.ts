@@ -34,6 +34,81 @@ function getErrorName(error: unknown) {
   return error instanceof Error ? error.name : "UnknownError";
 }
 
+type SafeProviderLogValue =
+  | string
+  | number
+  | boolean
+  | null
+  | SafeProviderLogValue[]
+  | { [key: string]: SafeProviderLogValue | undefined };
+
+type ProviderErrorLogDetails = {
+  status?: number;
+  message?: string;
+  cause?: SafeProviderLogValue;
+  error?: string;
+};
+
+function getProviderErrorDetails(error: unknown): ProviderErrorLogDetails | undefined {
+  if (!(error instanceof AppError) || !error.details) {
+    return undefined;
+  }
+
+  if (typeof error.details !== "object" || Array.isArray(error.details)) {
+    return undefined;
+  }
+
+  const details = error.details as Record<string, unknown>;
+
+  return {
+    status:
+      typeof details.status === "number" && Number.isFinite(details.status)
+        ? details.status
+        : undefined,
+    message:
+      typeof details.message === "string" ? details.message : undefined,
+    cause: normalizeProviderCause(details.cause),
+    error: typeof details.error === "string" ? details.error : undefined,
+  };
+}
+
+function normalizeProviderCause(
+  value: unknown,
+  depth = 0,
+): SafeProviderLogValue | undefined {
+  if (depth > 3) {
+    return "[truncated]";
+  }
+
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeProviderCause(item, depth + 1))
+      .filter((item): item is SafeProviderLogValue => item !== undefined);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !/token|secret|authorization|cookie|jwt/i.test(key))
+        .map(([key, item]) => [
+          key,
+          normalizeProviderCause(item, depth + 1),
+        ]),
+    ) as { [key: string]: SafeProviderLogValue | undefined };
+  }
+
+  return String(value);
+}
+
 export async function createTenantCheckoutSession(
   input: CreateTenantCheckoutInput,
 ): Promise<CheckoutResponse> {
@@ -149,16 +224,25 @@ export async function createTenantCheckoutSession(
 
     logger.info("billing.checkout.created", {
       tenantId: tenant.id,
+      tenantSlug: tenant.slug,
       provider: checkout.provider,
+      plan: input.plan,
+      status: checkout.providerHttpStatus,
       providerSubscriptionId: checkout.providerSubscriptionId,
       providerPreferenceId: checkout.providerPreferenceId,
-      checkoutUrl: checkout.checkoutUrl,
     });
   } catch (error) {
+    const providerError = getProviderErrorDetails(error);
+
     logger.error("billing.checkout.failed", {
       tenantId: tenant.id,
+      tenantSlug: tenant.slug,
       provider: input.provider,
       plan: input.plan,
+      status: providerError?.status,
+      providerMessage: providerError?.message,
+      providerCause: providerError?.cause,
+      providerError: providerError?.error,
       errorName: getErrorName(error),
       errorMessage: getErrorMessage(error),
     });
@@ -185,13 +269,17 @@ export async function createTenantCheckoutSession(
 
     logger.info("billing.subscription.persisted", {
       tenantId: tenant.id,
+      tenantSlug: tenant.slug,
       provider: input.provider,
+      plan: input.plan,
       providerSubscriptionId: checkout.providerSubscriptionId,
     });
   } catch (error) {
     logger.error("billing.subscription.persist_failed", {
       tenantId: tenant.id,
+      tenantSlug: tenant.slug,
       provider: input.provider,
+      plan: input.plan,
       errorName: getErrorName(error),
       errorMessage: getErrorMessage(error),
     });
@@ -216,18 +304,21 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
     eventType: event.eventType,
     tenantId: event.tenantId,
     tenantSlug: event.tenantSlug,
+    plan: event.plan,
+    subscriptionStatus: event.subscriptionStatus,
+    providerSubscriptionId: event.providerSubscriptionId,
   });
 
-  const [tenant, plan] = await Promise.all([
+  const [tenantFromReference, plan] = await Promise.all([
     event.tenantId
       ? prisma.tenant.findUnique({
           where: { id: event.tenantId },
-          select: { id: true },
+          select: { id: true, slug: true },
         })
       : event.tenantSlug
         ? prisma.tenant.findUnique({
             where: { slug: event.tenantSlug },
-            select: { id: true },
+            select: { id: true, slug: true },
           })
         : null,
 
@@ -239,6 +330,33 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       : null,
   ]);
 
+  let tenant = tenantFromReference;
+  let subscriptionFromProvider: {
+    tenantId: string;
+    planId: string;
+    tenant: { id: string; slug: string };
+  } | null = null;
+
+  if (!tenant && event.providerSubscriptionId) {
+    subscriptionFromProvider = await prisma.tenantSubscription.findFirst({
+      where: {
+        provider: event.provider,
+        providerSubscriptionId: event.providerSubscriptionId,
+      },
+      select: {
+        tenantId: true,
+        planId: true,
+        tenant: {
+          select: {
+            id: true,
+            slug: true,
+          },
+        },
+      },
+    });
+    tenant = subscriptionFromProvider?.tenant ?? null;
+  }
+
   if (!tenant) {
     logger.warn("billing.webhook.tenant_unresolved", {
       provider: event.provider,
@@ -246,6 +364,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       eventType: event.eventType,
       tenantId: event.tenantId,
       tenantSlug: event.tenantSlug,
+      providerSubscriptionId: event.providerSubscriptionId,
     });
 
     return {
@@ -282,6 +401,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
   if (!event.subscriptionStatus) {
     logger.info("billing.webhook.no_subscription_status", {
       tenantId: tenant.id,
+      tenantSlug: tenant.slug,
       providerEventId: event.providerEventId,
     });
 
@@ -291,16 +411,19 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
     };
   }
 
-  const existingSubscription = await prisma.tenantSubscription.findUnique({
-    where: { tenantId: tenant.id },
-    select: { planId: true },
-  });
+  const existingSubscription =
+    subscriptionFromProvider ??
+    (await prisma.tenantSubscription.findUnique({
+      where: { tenantId: tenant.id },
+      select: { tenantId: true, planId: true },
+    }));
 
   const planId = plan?.id ?? existingSubscription?.planId;
 
   if (!planId) {
     logger.error("billing.subscription.plan_unresolved", {
       tenantId: tenant.id,
+      tenantSlug: tenant.slug,
       provider: event.provider,
       providerEventId: event.providerEventId,
       eventType: event.eventType,
@@ -348,7 +471,9 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
 
   logger.info("billing.subscription.updated", {
     tenantId: tenant.id,
+    tenantSlug: tenant.slug,
     provider: event.provider,
+    plan: event.plan,
     status: event.subscriptionStatus,
     providerSubscriptionId: event.providerSubscriptionId,
   });

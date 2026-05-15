@@ -37,6 +37,7 @@ export type CheckoutResponse = {
   redirectUrl?: string;
   providerPreferenceId?: string;
   providerSubscriptionId?: string;
+  providerHttpStatus?: number;
 };
 
 export type ParsedWebhookEvent = {
