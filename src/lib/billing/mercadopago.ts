@@ -29,6 +29,7 @@ type MercadoPagoCheckoutInput = {
 type MercadoPagoCheckoutResponse = {
   provider: "MERCADO_PAGO";
   checkoutUrl: string;
+  redirectUrl?: string;
   providerPreferenceId?: string;
   providerSubscriptionId?: string;
 };
@@ -50,6 +51,11 @@ type MercadoPagoWebhookEvent = {
 type JsonObject = Record<string, unknown>;
 
 const DEFAULT_WEBHOOK_TOLERANCE_MS = 10 * 60 * 1000;
+const MERCADO_PAGO_PLAN_ENV: Record<MercadoPagoPlanCode, string> = {
+  STARTER: "MERCADO_PAGO_PLAN_STARTER",
+  PROFESSIONAL: "MERCADO_PAGO_PLAN_PROFESSIONAL",
+  ENTERPRISE: "MERCADO_PAGO_PLAN_ENTERPRISE",
+};
 
 function requireEnv(name: string) {
   const value = process.env[name];
@@ -81,6 +87,20 @@ function getWebhookUrl(successUrl: string) {
     process.env.MERCADO_PAGO_WEBHOOK_URL ??
     `${new URL(successUrl).origin}/api/webhooks/mercadopago`
   );
+}
+
+function getMercadoPagoPlanId(plan: MercadoPagoPlanCode) {
+  const envName = MERCADO_PAGO_PLAN_ENV[plan];
+  const planId = process.env[envName]?.trim();
+
+  if (!planId) {
+    throw new ConfigurationError(
+      `Configure ${envName} com o ID do plano recorrente do Mercado Pago.`,
+      { plan },
+    );
+  }
+
+  return planId;
 }
 
 function externalReference(input: MercadoPagoCheckoutInput) {
@@ -175,6 +195,7 @@ export async function createMercadoPagoPreference(
   return {
     provider: "MERCADO_PAGO",
     checkoutUrl,
+    redirectUrl: checkoutUrl,
     providerPreferenceId: result.id,
   };
 }
@@ -200,25 +221,15 @@ export async function createMercadoPagoRecurringSubscription(
   }
 
   const preApproval = new PreApproval(getMercadoPagoClient());
-  const recurringConfig = input.mercadoPagoPlanId
-    ? {}
-    : {
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: "months",
-          transaction_amount: amountFromCents(input.amountCents),
-          currency_id: currencyId(input.currency),
-        },
-      };
+  const mercadoPagoPlanId = getMercadoPagoPlanId(input.plan);
   const result = await preApproval.create({
     body: {
-      preapproval_plan_id: input.mercadoPagoPlanId || undefined,
+      preapproval_plan_id: mercadoPagoPlanId,
       reason: input.planName,
       external_reference: externalReference(input),
       payer_email: input.payerEmail,
       back_url: input.successUrl,
       status: "pending",
-      ...recurringConfig,
     },
     requestOptions: { idempotencyKey: randomUUID() },
   });
@@ -234,6 +245,7 @@ export async function createMercadoPagoRecurringSubscription(
   return {
     provider: "MERCADO_PAGO",
     checkoutUrl: result.init_point,
+    redirectUrl: result.init_point,
     providerSubscriptionId: result.id,
   };
 }
@@ -374,6 +386,7 @@ function mapPaymentStatus(status: string | undefined) {
     status === "rejected" ||
     status === "cancelled" ||
     status === "canceled" ||
+    status === "expired" ||
     status === "refunded" ||
     status === "charged_back"
   ) {
@@ -384,7 +397,7 @@ function mapPaymentStatus(status: string | undefined) {
 }
 
 function mapPreApprovalStatus(status: string | undefined) {
-  if (status === "authorized") {
+  if (status === "authorized" || status === "active") {
     return "ACTIVE" as const;
   }
 
@@ -392,7 +405,7 @@ function mapPreApprovalStatus(status: string | undefined) {
     return "CANCELED" as const;
   }
 
-  if (status === "paused") {
+  if (status === "paused" || status === "expired" || status === "rejected") {
     return "BLOCKED" as const;
   }
 
@@ -420,11 +433,13 @@ export async function parseMercadoPagoWebhook(
   const payload = parseJson(rawBody);
   const dataId = getWebhookDataId(payload, request);
   const topic = eventTopic(payload);
-  const providerEventId =
+  const providerEventId = [
+    topic || "mercadopago",
     stringValue(payload.id) ??
-    stringValue(nestedObject(payload.data).id) ??
-    dataId ??
-    randomUUID();
+      stringValue(nestedObject(payload.data).id) ??
+      dataId ??
+      randomUUID(),
+  ].join(":");
 
   if (dataId && topic.includes("preapproval")) {
     const preApproval = await new PreApproval(getMercadoPagoClient()).get({
@@ -472,7 +487,6 @@ export async function parseMercadoPagoWebhook(
       tenantSlug:
         stringValue(nestedObject(payment.metadata).tenantSlug) ?? reference.slug,
       providerCustomerId: payment.payer?.id,
-      providerSubscriptionId: payment.id ? String(payment.id) : undefined,
       subscriptionStatus: mapPaymentStatus(payment.status),
       currentPeriodEnd:
         payment.status === "approved" ? addOneMonth(periodBase) : undefined,

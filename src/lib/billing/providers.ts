@@ -34,6 +34,9 @@ export type CheckoutRequest = {
 export type CheckoutResponse = {
   provider: PaymentProviderCode;
   checkoutUrl: string;
+  redirectUrl?: string;
+  providerPreferenceId?: string;
+  providerSubscriptionId?: string;
 };
 
 export type ParsedWebhookEvent = {

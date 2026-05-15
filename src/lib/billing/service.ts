@@ -32,6 +32,7 @@ export async function createTenantCheckoutSession(
   const plan = await prisma.subscriptionPlan.findUnique({
     where: { code: input.plan },
     select: {
+      id: true,
       code: true,
       name: true,
       priceCents: true,
@@ -45,6 +46,29 @@ export async function createTenantCheckoutSession(
   if (!plan || !plan.isActive) {
     throw new AppError("PLAN_NOT_FOUND", "Plano nao encontrado.", 404);
   }
+
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: input.tenantId },
+    select: {
+      id: true,
+      slug: true,
+      subscription: {
+        select: {
+          id: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  if (!tenant || tenant.slug !== input.tenantSlug) {
+    throw new AppError(
+      "TENANT_NOT_FOUND",
+      "Tenant nao encontrado para esta sessao.",
+      404,
+    );
+  }
+  const initialStatus = tenant.subscription?.status ?? "TRIAL";
 
   if (input.provider === "STRIPE" && !plan.stripePriceId) {
     throw new AppError(
@@ -65,7 +89,7 @@ export async function createTenantCheckoutSession(
     },
   });
 
-  return createCheckoutSession({
+  const checkout = await createCheckoutSession({
     ...input,
     planName: plan.name,
     priceCents: plan.priceCents,
@@ -74,6 +98,27 @@ export async function createTenantCheckoutSession(
     mercadoPagoPlanId: optionalProviderId(plan.mercadoPagoPlanId),
     payerEmail: input.payerEmail ?? adminUser?.email,
   });
+
+  await prisma.tenantSubscription.upsert({
+    where: { tenantId: tenant.id },
+    create: {
+      tenantId: tenant.id,
+      planId: plan.id,
+      status: initialStatus,
+      provider: input.provider,
+      providerSubscriptionId: checkout.providerSubscriptionId,
+    },
+    update: {
+      planId: plan.id,
+      provider: input.provider,
+      providerSubscriptionId: checkout.providerSubscriptionId,
+    },
+  });
+
+  return {
+    ...checkout,
+    redirectUrl: checkout.redirectUrl ?? checkout.checkoutUrl,
+  };
 }
 
 export async function processBillingWebhook(event: ParsedWebhookEvent) {

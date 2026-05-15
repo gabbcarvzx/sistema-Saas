@@ -120,6 +120,19 @@ test.describe("Fluxo SaaS multi-tenant", () => {
     await expect(page.getByText(tenantA.tenantSlug).first()).toBeVisible();
   });
 
+  test("/app/billing autenticado carrega planos e CTA de checkout", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto("/app/billing");
+
+    await expect(page).not.toHaveURL(/login/);
+    await expect(page.getByText("Billing e assinatura")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Assinar agora/i }).first(),
+    ).toBeVisible();
+  });
+
   test("logout remove sessao e /app volta para login", async ({ page, context }) => {
     await login(page);
     await page.goto("/app/account");

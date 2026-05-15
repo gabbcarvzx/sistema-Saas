@@ -11,6 +11,7 @@ type CheckoutButtonProps = {
 
 type CheckoutResponse = {
   checkoutUrl?: string;
+  redirectUrl?: string;
   message?: string;
 };
 
@@ -36,13 +37,15 @@ export function CheckoutButton({ label, payerEmail, plan }: CheckoutButtonProps)
     });
     const body = (await response.json().catch(() => ({}))) as CheckoutResponse;
 
-    if (!response.ok || !body.checkoutUrl) {
+    const redirectUrl = body.redirectUrl ?? body.checkoutUrl;
+
+    if (!response.ok || !redirectUrl) {
       setFeedback(body.message ?? "Nao foi possivel iniciar o checkout.");
       setIsLoading(false);
       return;
     }
 
-    window.location.href = body.checkoutUrl;
+    window.location.href = redirectUrl;
   }
 
   return (
