@@ -26,6 +26,14 @@ function optionalProviderId(value: string | null | undefined) {
   return trimmed && trimmed.length >= 8 ? trimmed : undefined;
 }
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function getErrorName(error: unknown) {
+  return error instanceof Error ? error.name : "UnknownError";
+}
+
 export async function createTenantCheckoutSession(
   input: CreateTenantCheckoutInput,
 ): Promise<CheckoutResponse> {
@@ -56,11 +64,7 @@ export async function createTenantCheckoutSession(
       plan: input.plan,
     });
 
-    throw new AppError(
-      "PLAN_NOT_FOUND",
-      "Plano nao encontrado.",
-      404,
-    );
+    throw new AppError("PLAN_NOT_FOUND", "Plano nao encontrado.", 404);
   }
 
   const tenant = await prisma.tenant.findUnique({
@@ -155,14 +159,8 @@ export async function createTenantCheckoutSession(
       tenantId: tenant.id,
       provider: input.provider,
       plan: input.plan,
-      error:
-        error instanceof Error
-          ? {
-              name: error.name,
-              message: error.message,
-              stack: error.stack,
-            }
-          : error,
+      errorName: getErrorName(error),
+      errorMessage: getErrorMessage(error),
     });
 
     throw error;
@@ -194,14 +192,8 @@ export async function createTenantCheckoutSession(
     logger.error("billing.subscription.persist_failed", {
       tenantId: tenant.id,
       provider: input.provider,
-      error:
-        error instanceof Error
-          ? {
-              name: error.name,
-              message: error.message,
-              stack: error.stack,
-            }
-          : error,
+      errorName: getErrorName(error),
+      errorMessage: getErrorMessage(error),
     });
 
     throw new AppError(
@@ -271,7 +263,6 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
         providerEventId: event.providerEventId,
       },
     },
-
     create: {
       tenantId: tenant.id,
       provider: event.provider,
@@ -280,7 +271,6 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       payload: event.payload as Prisma.InputJsonValue,
       processedAt,
     },
-
     update: {
       tenantId: tenant.id,
       eventType: event.eventType,
@@ -331,7 +321,6 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
 
   await prisma.tenantSubscription.upsert({
     where: { tenantId: tenant.id },
-
     create: {
       tenantId: tenant.id,
       planId,
@@ -344,7 +333,6 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
       blockedAt: isBlocked ? processedAt : null,
     },
-
     update: {
       ...(plan ? { planId: plan.id } : {}),
       status: event.subscriptionStatus,
