@@ -98,11 +98,6 @@ export const POST = withApiHandler(async (request) => {
       );
     }
 
-    console.error("Erro ao criar produto:", error);
-
-    return NextResponse.json(
-      { message: "Erro interno ao criar produto." },
-      { status: 500 },
-    );
+    throw error;
   }
 });

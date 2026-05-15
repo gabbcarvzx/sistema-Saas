@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { getTenantContext } from "@/lib/tenant-context";
+import { getAppContext } from "@/lib/app-context";
+import { AppShell } from "@/app/app/app-shell";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +9,23 @@ export default async function ProtectedAppLayout({
 }: {
   children: ReactNode;
 }) {
-  await getTenantContext();
+  const context = await getAppContext();
 
-  return children;
+  return (
+    <AppShell
+      tenant={{
+        name: context.tenant.name,
+        slug: context.tenant.slug,
+        subscriptionStatus: context.tenant.subscription?.status ?? "MISSING",
+        trialEndsAt: context.tenant.subscription?.trialEndsAt?.toISOString() ?? null,
+      }}
+      user={{
+        name: context.user.name,
+        email: context.user.email,
+        role: context.user.role,
+      }}
+    >
+      {children}
+    </AppShell>
+  );
 }

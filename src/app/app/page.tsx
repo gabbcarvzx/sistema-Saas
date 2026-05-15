@@ -1,7 +1,7 @@
-import { ProductsClient } from "@/app/components/products-client";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default function AppHomePage() {
-  return <ProductsClient />;
+  redirect("/app/dashboard");
 }

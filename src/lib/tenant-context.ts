@@ -1,11 +1,10 @@
 import { cookies, headers } from "next/headers";
 import { verifyAuthToken } from "@/lib/auth/jwt";
+import { prisma } from "@/lib/prisma";
 import { getTenantAccessBySlug, assertTenantAccess } from "@/lib/billing/access";
 import { NotFoundError, UnauthorizedError } from "@/lib/http-errors";
-import {
-  resolveTenantSlug,
-  resolveTenantSlugFromTrustedHeaders,
-} from "@/lib/tenant-resolver";
+import { evaluateTenantAccess } from "@/lib/billing/policy";
+import { resolveTenantSlugFromTrustedHeaders } from "@/lib/tenant-resolver";
 
 export type TenantContext = {
   id: string;
@@ -48,6 +47,24 @@ function assertSessionTenant(token: string | undefined, tenantId: string) {
   return session;
 }
 
+function normalizeTenantSlug(value: string | null | undefined) {
+  const slug = value?.trim().toLowerCase();
+
+  if (!slug) {
+    return null;
+  }
+
+  return slug.replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-");
+}
+
+function getExplicitTenantSlug(request: Request) {
+  try {
+    return normalizeTenantSlug(new URL(request.url).searchParams.get("tenant"));
+  } catch {
+    return null;
+  }
+}
+
 async function getTenantContextBySlug(
   slug: string,
   sessionToken: string | undefined,
@@ -64,18 +81,54 @@ async function getTenantContextBySlug(
   };
 }
 
-async function getTenantIdentityBySlug(
-  slug: string,
-  sessionToken: string | undefined,
-): Promise<TenantContext> {
-  const access = await getTenantAccessContext(slug);
+async function getTenantIdentityBySession(request: Request) {
+  const sessionToken = getCookieValue(request.headers.get("cookie"), "session");
 
-  assertSessionTenant(sessionToken, access.tenantId);
+  if (!sessionToken) {
+    throw new UnauthorizedError("Sessao ausente ou expirada.");
+  }
+
+  const session = verifyAuthToken(sessionToken);
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: session.tenantId },
+    include: { subscription: true },
+  });
+
+  if (!tenant) {
+    throw new NotFoundError("Cliente nao encontrado.", {
+      tenantId: session.tenantId,
+    });
+  }
+
+  const explicitTenantSlug = getExplicitTenantSlug(request);
+
+  if (explicitTenantSlug && explicitTenantSlug !== tenant.slug) {
+    throw new UnauthorizedError("Sessao nao pertence a este cliente.");
+  }
+
+  const access = evaluateTenantAccess({
+    id: tenant.id,
+    slug: tenant.slug,
+    name: tenant.name,
+    status: tenant.status,
+    subscription: tenant.subscription
+      ? {
+          id: tenant.subscription.id,
+          status: tenant.subscription.status,
+          trialEndsAt: tenant.subscription.trialEndsAt,
+          currentPeriodEnd: tenant.subscription.currentPeriodEnd,
+          blockedAt: tenant.subscription.blockedAt,
+        }
+      : null,
+  });
 
   return {
-    id: access.tenantId,
-    slug: access.tenantSlug,
-    name: access.tenantName,
+    access,
+    tenant: {
+      id: tenant.id,
+      slug: tenant.slug,
+      name: tenant.name,
+    },
   };
 }
 
@@ -88,15 +141,15 @@ export async function getTenantContext() {
 }
 
 export async function getTenantContextFromRequest(request: Request) {
-  const slug = resolveTenantSlug(request.headers, request.url);
-  const sessionToken = getCookieValue(request.headers.get("cookie"), "session");
+  const context = await getTenantIdentityBySession(request);
 
-  return getTenantContextBySlug(slug, sessionToken);
+  assertTenantAccess(context.access);
+
+  return context.tenant;
 }
 
 export async function getTenantIdentityFromRequest(request: Request) {
-  const slug = resolveTenantSlug(request.headers, request.url);
-  const sessionToken = getCookieValue(request.headers.get("cookie"), "session");
+  const context = await getTenantIdentityBySession(request);
 
-  return getTenantIdentityBySlug(slug, sessionToken);
+  return context.tenant;
 }

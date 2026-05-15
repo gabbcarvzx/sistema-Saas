@@ -71,6 +71,7 @@ export default function SignupPage() {
           <label className="block">
             <span className="text-sm font-medium text-slate-300">Empresa</span>
             <input
+              name="name"
               value={companyName}
               onChange={(event) => setCompanyName(event.target.value)}
               className="form-input mt-2"
@@ -82,6 +83,7 @@ export default function SignupPage() {
           <label className="block">
             <span className="text-sm font-medium text-slate-300">Slug</span>
             <input
+              name="slug"
               value={tenantSlug}
               onChange={(event) => setTenantSlug(event.target.value)}
               className="form-input mt-2"
@@ -93,6 +95,7 @@ export default function SignupPage() {
           <label className="block">
             <span className="text-sm font-medium text-slate-300">Admin</span>
             <input
+              name="adminName"
               value={adminName}
               onChange={(event) => setAdminName(event.target.value)}
               className="form-input mt-2"
@@ -104,6 +107,7 @@ export default function SignupPage() {
           <label className="block">
             <span className="text-sm font-medium text-slate-300">Email admin</span>
             <input
+              name="email"
               value={adminEmail}
               onChange={(event) => setAdminEmail(event.target.value)}
               className="form-input mt-2"
@@ -116,6 +120,7 @@ export default function SignupPage() {
           <label className="block">
             <span className="text-sm font-medium text-slate-300">Senha</span>
             <input
+              name="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className="form-input mt-2"
@@ -127,6 +132,7 @@ export default function SignupPage() {
           <label className="block">
             <span className="text-sm font-medium text-slate-300">Cor primaria</span>
             <input
+              name="primaryColor"
               value={primaryColor}
               onChange={(event) => setPrimaryColor(event.target.value)}
               className="form-input mt-2"
@@ -137,6 +143,7 @@ export default function SignupPage() {
           <label className="block sm:col-span-2">
             <span className="text-sm font-medium text-slate-300">Email suporte</span>
             <input
+              name="supportEmail"
               value={supportEmail}
               onChange={(event) => setSupportEmail(event.target.value)}
               className="form-input mt-2"

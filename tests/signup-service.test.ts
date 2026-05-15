@@ -73,6 +73,7 @@ describe("signupTenant", () => {
     mocks.tx.tenantSubscription.create.mockResolvedValue({
       id: "subscription-1",
       status: "TRIAL",
+      trialStartsAt: now,
       trialEndsAt,
     });
   });
@@ -138,6 +139,7 @@ describe("signupTenant", () => {
         tenantId: "tenant-1",
         planId: "plan-trial",
         status: "TRIAL",
+        trialStartsAt: now,
         trialEndsAt,
         currentPeriodStart: now,
         currentPeriodEnd: trialEndsAt,
@@ -145,6 +147,7 @@ describe("signupTenant", () => {
       select: {
         id: true,
         status: true,
+        trialStartsAt: true,
         trialEndsAt: true,
       },
     });

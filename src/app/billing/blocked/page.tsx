@@ -48,11 +48,17 @@ export default function BillingBlockedPage({
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <Link
-            href={`mailto:${supportEmail}?subject=${supportSubject}`}
+            href="/app/billing"
             className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
           >
             <CreditCard size={18} />
-            Atualizar plano
+            Atualizar pagamento
+          </Link>
+          <Link
+            href={`mailto:${supportEmail}?subject=${supportSubject}`}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-white/10 px-4 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.06]"
+          >
+            Falar com suporte
           </Link>
           <Link
             href="/app"

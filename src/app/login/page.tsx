@@ -66,6 +66,7 @@ export default function LoginPage() {
           <label className="block">
             <span className="text-sm font-medium text-slate-300">Cliente</span>
             <input
+              name="tenantSlug"
               value={tenantSlug}
               onChange={(event) => setTenantSlug(event.target.value)}
               className="form-input mt-2"
@@ -77,6 +78,7 @@ export default function LoginPage() {
           <label className="block">
             <span className="text-sm font-medium text-slate-300">Email</span>
             <input
+              name="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               className="form-input mt-2"
@@ -89,6 +91,7 @@ export default function LoginPage() {
           <label className="block">
             <span className="text-sm font-medium text-slate-300">Senha</span>
             <input
+              name="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className="form-input mt-2"

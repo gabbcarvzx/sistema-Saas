@@ -24,6 +24,10 @@ function isProtectedAppPath(pathname: string) {
   );
 }
 
+function isBillingRecoveryPath(pathname: string) {
+  return pathname === "/app/billing" || pathname.startsWith("/app/billing/");
+}
+
 function normalizeSlug(value: string | null | undefined) {
   const slug = value?.trim().toLowerCase();
 
@@ -113,7 +117,7 @@ export async function middleware(request: NextRequest) {
 
   const access = (await checkResponse.json()) as TenantAccessResponse;
 
-  if (!access.allowed) {
+  if (!access.allowed && !isBillingRecoveryPath(pathname)) {
     return planBlockedResponse(request, access);
   }
 

@@ -30,7 +30,8 @@ export async function signupTenant(input: SignupInput) {
   }
 
   const now = new Date();
-  const trialEndsAt = addDays(now, DEFAULT_TRIAL_DAYS);
+  const trialStartsAt = now;
+  const trialEndsAt = addDays(trialStartsAt, DEFAULT_TRIAL_DAYS);
   const passwordHash = await hashPassword(input.password);
 
   return prisma.$transaction(async (tx) => {
@@ -82,13 +83,15 @@ export async function signupTenant(input: SignupInput) {
         tenantId: tenant.id,
         planId: plan.id,
         status: "TRIAL",
+        trialStartsAt,
         trialEndsAt,
-        currentPeriodStart: now,
+        currentPeriodStart: trialStartsAt,
         currentPeriodEnd: trialEndsAt,
       },
       select: {
         id: true,
         status: true,
+        trialStartsAt: true,
         trialEndsAt: true,
       },
     });
@@ -99,7 +102,7 @@ export async function signupTenant(input: SignupInput) {
       adminUserId: adminUser.id,
       subscriptionId: subscription.id,
       subscriptionStatus: subscription.status,
-      trialStartsAt: now,
+      trialStartsAt: subscription.trialStartsAt ?? trialStartsAt,
       trialEndsAt: subscription.trialEndsAt ?? trialEndsAt,
     };
   });
