@@ -1,10 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import {
-  MercadoPagoConfig,
-  Payment,
-  PreApproval,
-  Preference,
-} from "mercadopago";
+import { MercadoPagoConfig, Payment, PreApproval } from "mercadopago";
 import {
   AppError,
   ConfigurationError,
@@ -60,9 +55,8 @@ type SafeLogValue =
   | { [key: string]: SafeLogValue | undefined };
 
 const DEFAULT_WEBHOOK_TOLERANCE_MS = 10 * 60 * 1000;
-const DEFAULT_SUBSCRIPTION_DURATION_YEARS = 10;
-const MERCADO_PAGO_PREAPPROVAL_URL =
-  "https://api.mercadopago.com/preapproval";
+const MERCADO_PAGO_PREFERENCE_URL =
+  "https://api.mercadopago.com/checkout/preferences";
 
 type SafeMercadoPagoErrorPayload = {
   message?: string;
@@ -102,23 +96,6 @@ function getWebhookUrl(successUrl: string) {
     process.env.MERCADO_PAGO_WEBHOOK_URL ??
     `${new URL(successUrl).origin}/api/webhooks/mercadopago`
   );
-}
-
-function parsePositiveInteger(value: string | undefined, fallback: number) {
-  const parsed = value ? Number(value) : fallback;
-
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function getSubscriptionEndDate() {
-  const years = parsePositiveInteger(
-    process.env.MERCADO_PAGO_SUBSCRIPTION_YEARS,
-    DEFAULT_SUBSCRIPTION_DURATION_YEARS,
-  );
-  const endDate = new Date();
-  endDate.setFullYear(endDate.getFullYear() + years);
-
-  return endDate.toISOString();
 }
 
 function maskEmail(email: string) {
@@ -281,25 +258,23 @@ type PreferenceCreateResult = {
   id?: string;
   init_point?: string;
   sandbox_init_point?: string;
-};
-
-function getPreferenceCheckoutUrl(result: PreferenceCreateResult) {
-  return result.init_point ?? result.sandbox_init_point;
-}
-
-type PreApprovalCreateResult = {
-  id?: string;
-  init_point?: string;
-  sandbox_init_point?: string;
-  status?: string;
   external_reference?: string;
   api_response?: {
     status?: number;
   };
 };
 
-function getPreApprovalCheckoutUrl(result: PreApprovalCreateResult) {
-  return result.init_point ?? result.sandbox_init_point;
+function isSandboxAccessToken(accessToken: string) {
+  return accessToken.startsWith("TEST-");
+}
+
+function getPreferenceCheckoutUrl(
+  result: PreferenceCreateResult,
+  options: { preferSandbox: boolean },
+) {
+  return options.preferSandbox
+    ? result.sandbox_init_point ?? result.init_point
+    : result.init_point ?? result.sandbox_init_point;
 }
 
 function assertCheckoutUrl(value: string | undefined, message: string) {
@@ -324,31 +299,38 @@ function assertCheckoutUrl(value: string | undefined, message: string) {
   return value;
 }
 
-type MercadoPagoPreApprovalPayload = {
-  reason: string;
+type MercadoPagoPreferencePayload = {
   external_reference: string;
-  payer_email: string;
-  back_url: string;
-  status: "pending";
-  auto_recurring: {
-    frequency: 1;
-    frequency_type: "months";
-    end_date?: string;
-    transaction_amount: number;
+  metadata: {
+    tenantId: string;
+    tenantSlug: string;
+    plan: MercadoPagoPlanCode;
+  };
+  notification_url: string;
+  auto_return: "approved";
+  back_urls: {
+    success: string;
+    pending: string;
+    failure: string;
+  };
+  items: Array<{
+    id: MercadoPagoPlanCode;
+    title: string;
+    quantity: 1;
     currency_id: string;
+    unit_price: number;
+  }>;
+  payer?: {
+    email: string;
   };
 };
 
-type MercadoPagoPreApprovalFetchInput = MercadoPagoCheckoutInput & {
-  accessToken: string;
-};
-
-function buildMercadoPagoPreApprovalPayload(
-  input: MercadoPagoCheckoutInput & { payerEmail: string },
-  options: { includeEndDate: boolean },
-): MercadoPagoPreApprovalPayload {
+function buildMercadoPagoPreferencePayload(
+  input: MercadoPagoCheckoutInput,
+): MercadoPagoPreferencePayload {
   const amount = amountFromCents(input.amountCents);
   const currency = currencyId(input.currency);
+  const notificationUrl = getWebhookUrl(input.successUrl);
 
   if (amount <= 0) {
     throw new AppError(
@@ -362,44 +344,55 @@ function buildMercadoPagoPreApprovalPayload(
   if (currency !== "BRL") {
     throw new AppError(
       "BILLING_CURRENCY_INVALID",
-      "Mercado Pago recorrente esta configurado para cobrancas em BRL.",
+      "Mercado Pago esta configurado para cobrancas em BRL.",
       500,
       { plan: input.plan, currency },
     );
   }
 
   assertPublicHttpsUrl(input.successUrl, "APP_URL");
+  assertPublicHttpsUrl(input.cancelUrl, "APP_URL");
+  assertPublicHttpsUrl(notificationUrl, "MERCADO_PAGO_WEBHOOK_URL");
 
-  const payload: MercadoPagoPreApprovalPayload = {
-    reason: input.planName,
+  const payload: MercadoPagoPreferencePayload = {
     external_reference: externalReference(input),
-    payer_email: input.payerEmail,
-    back_url: input.successUrl,
-    status: "pending",
-    auto_recurring: {
-      frequency: 1,
-      frequency_type: "months",
-      transaction_amount: amount,
-      currency_id: currency,
+    metadata: {
+      tenantId: input.tenantId,
+      tenantSlug: input.tenantSlug,
+      plan: input.plan,
     },
+    notification_url: notificationUrl,
+    auto_return: "approved",
+    back_urls: {
+      success: input.successUrl,
+      pending: input.successUrl,
+      failure: input.cancelUrl,
+    },
+    items: [
+      {
+        id: input.plan,
+        title: input.planName,
+        quantity: 1,
+        currency_id: currency,
+        unit_price: amount,
+      },
+    ],
   };
 
-  if (options.includeEndDate) {
-    payload.auto_recurring.end_date = getSubscriptionEndDate();
+  if (input.payerEmail) {
+    payload.payer = { email: input.payerEmail };
   }
 
   return payload;
 }
 
-function mercadoPagoLogContext(
-  input: MercadoPagoCheckoutInput & { payerEmail: string },
-) {
+function mercadoPagoLogContext(input: MercadoPagoCheckoutInput) {
   return {
     tenantId: input.tenantId,
     tenantSlug: input.tenantSlug,
     provider: "MERCADO_PAGO",
     plan: input.plan,
-    payerEmail: maskEmail(input.payerEmail),
+    payerEmail: input.payerEmail ? maskEmail(input.payerEmail) : undefined,
   };
 }
 
@@ -433,88 +426,89 @@ function mercadoPagoBodyDetails(
   };
 }
 
-async function sendMercadoPagoPreApprovalRequest(
-  input: MercadoPagoPreApprovalFetchInput & { payerEmail: string },
-  options: { includeEndDate: boolean; attempt: "primary" | "fallback_without_end_date" },
-) {
-  const payload = buildMercadoPagoPreApprovalPayload(input, {
-    includeEndDate: options.includeEndDate,
-  });
+export async function createMercadoPagoCheckoutPreference(
+  input: MercadoPagoCheckoutInput,
+): Promise<MercadoPagoCheckoutResponse> {
+  const accessToken = requireEnv("MERCADO_PAGO_ACCESS_TOKEN");
+  const payload = buildMercadoPagoPreferencePayload(input);
 
-  logger.info("mercado_pago.preapproval.payload_ready", {
-    ...mercadoPagoLogContext(input),
-    attempt: options.attempt,
-    status: payload.status,
-    transactionAmount: payload.auto_recurring.transaction_amount,
-    currencyId: payload.auto_recurring.currency_id,
-    backUrlOrigin: new URL(payload.back_url).origin,
-    hasEndDate: Boolean(payload.auto_recurring.end_date),
-    hasPreapprovalPlanId: false,
-  });
+  try {
+    logger.info("mercado_pago.preference.payload_ready", {
+      ...mercadoPagoLogContext(input),
+      transactionAmount: payload.items[0]?.unit_price,
+      currencyId: payload.items[0]?.currency_id,
+      successUrlOrigin: new URL(payload.back_urls.success).origin,
+      failureUrlOrigin: new URL(payload.back_urls.failure).origin,
+      notificationUrlOrigin: new URL(payload.notification_url).origin,
+      hasPayerEmail: Boolean(payload.payer?.email),
+      hasPreapprovalPlanId: false,
+    });
 
-  const response = await fetch(MERCADO_PAGO_PREAPPROVAL_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${input.accessToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "X-Idempotency-Key": randomUUID(),
-    },
-    body: JSON.stringify(payload),
-  });
+    const response = await fetch(MERCADO_PAGO_PREFERENCE_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Idempotency-Key": randomUUID(),
+      },
+      body: JSON.stringify(payload),
+    });
 
-  const body = await readMercadoPagoResponseBody(response);
+    const body = await readMercadoPagoResponseBody(response);
 
-  return {
-    response,
-    body,
-  };
-}
+    if (!response.ok) {
+      const details = mercadoPagoBodyDetails(response.status, body);
 
-export async function createMercadoPagoPreApprovalWithFetch(
-  input: MercadoPagoPreApprovalFetchInput,
-): Promise<PreApprovalCreateResult> {
-  if (!input.payerEmail) {
-    throw new AppError(
-      "BILLING_PAYER_EMAIL_REQUIRED",
-      "Informe o email do pagador para criar assinatura recorrente.",
-      400,
+      logger.error("mercado_pago.preference.failed", {
+        ...mercadoPagoLogContext(input),
+        status: response.status,
+        mercadoPagoMessage: details.message,
+        mercadoPagoError: details.error,
+        mercadoPagoCause: details.cause,
+        responseBody: details.responseBody,
+      });
+
+      throw new AppError(
+        "MERCADO_PAGO_PREFERENCE_FAILED",
+        "Mercado Pago recusou a criacao do checkout.",
+        502,
+        details,
+      );
+    }
+
+    const result =
+      body && typeof body === "object" ? (body as PreferenceCreateResult) : {};
+    const checkoutUrl = assertCheckoutUrl(
+      getPreferenceCheckoutUrl(result, {
+        preferSandbox: isSandboxAccessToken(accessToken),
+      }),
+      "Mercado Pago nao retornou URL de checkout.",
     );
-  }
 
-  const normalizedInput = {
-    ...input,
-    payerEmail: input.payerEmail,
-  };
-
-  let result = await sendMercadoPagoPreApprovalRequest(normalizedInput, {
-    includeEndDate: true,
-    attempt: "primary",
-  });
-
-  if (!result.response.ok && result.response.status >= 500) {
-    const firstDetails = mercadoPagoBodyDetails(result.response.status, result.body);
-
-    logger.warn("mercado_pago.preapproval.retry_without_end_date", {
-      ...mercadoPagoLogContext(normalizedInput),
-      firstStatus: result.response.status,
-      firstMessage: firstDetails.message,
-      firstError: firstDetails.error,
-      firstCause: firstDetails.cause,
+    logger.info("mercado_pago.preference.created", {
+      ...mercadoPagoLogContext(input),
+      status: response.status,
+      providerPreferenceId: result.id,
     });
 
-    result = await sendMercadoPagoPreApprovalRequest(normalizedInput, {
-      includeEndDate: false,
-      attempt: "fallback_without_end_date",
-    });
-  }
+    return {
+      provider: "MERCADO_PAGO",
+      checkoutUrl,
+      redirectUrl: checkoutUrl,
+      providerPreferenceId: result.id,
+      providerHttpStatus: response.status,
+    };
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
 
-  if (!result.response.ok) {
-    const details = mercadoPagoBodyDetails(result.response.status, result.body);
+    const details = mercadoPagoErrorPayload(error);
 
-    logger.error("mercado_pago.preapproval.failed", {
-      ...mercadoPagoLogContext(normalizedInput),
-      status: result.response.status,
+    logger.error("mercado_pago.preference.failed", {
+      ...mercadoPagoLogContext(input),
+      status: details.status,
       mercadoPagoMessage: details.message,
       mercadoPagoError: details.error,
       mercadoPagoCause: details.cause,
@@ -522,149 +516,10 @@ export async function createMercadoPagoPreApprovalWithFetch(
     });
 
     throw new AppError(
-      "MERCADO_PAGO_PREAPPROVAL_FAILED",
-      "Mercado Pago recusou a criacao da assinatura.",
+      "MERCADO_PAGO_PREFERENCE_FAILED",
+      "Mercado Pago recusou a criacao do checkout.",
       502,
       details,
-    );
-  }
-
-  const body = result.body;
-  const responseBody =
-    body && typeof body === "object" ? (body as PreApprovalCreateResult) : {};
-
-  logger.info("mercado_pago.preapproval.created", {
-    ...mercadoPagoLogContext(normalizedInput),
-    status: result.response.status,
-    mercadoPagoStatus: responseBody.status,
-    providerSubscriptionId: responseBody.id,
-  });
-
-  return {
-    ...responseBody,
-    api_response: {
-      status: result.response.status,
-    },
-  };
-}
-
-export async function createMercadoPagoPreference(
-  input: MercadoPagoCheckoutInput,
-): Promise<MercadoPagoCheckoutResponse> {
-  if (input.amountCents <= 0) {
-    throw new AppError(
-      "BILLING_PRICE_INVALID",
-      "Plano Mercado Pago precisa ter preco maior que zero.",
-      500,
-      { plan: input.plan },
-    );
-  }
-
-  const preference = new Preference(getMercadoPagoClient());
-
-  const result = (await preference.create({
-    body: {
-      external_reference: externalReference(input),
-      metadata: {
-        tenantId: input.tenantId,
-        tenantSlug: input.tenantSlug,
-        plan: input.plan,
-      },
-      notification_url: getWebhookUrl(input.successUrl),
-      auto_return: "approved",
-      back_urls: {
-        success: input.successUrl,
-        pending: input.successUrl,
-        failure: input.cancelUrl,
-      },
-      items: [
-        {
-          id: input.plan,
-          title: input.planName,
-          quantity: 1,
-          currency_id: currencyId(input.currency),
-          unit_price: amountFromCents(input.amountCents),
-        },
-      ],
-      payer: input.payerEmail ? { email: input.payerEmail } : undefined,
-    },
-    requestOptions: { idempotencyKey: randomUUID() },
-  })) as PreferenceCreateResult;
-
-  const checkoutUrl = getPreferenceCheckoutUrl(result);
-
-  const validCheckoutUrl = assertCheckoutUrl(
-    checkoutUrl,
-    "Mercado Pago nao retornou URL de checkout.",
-  );
-
-  return {
-    provider: "MERCADO_PAGO",
-    checkoutUrl: validCheckoutUrl,
-    redirectUrl: validCheckoutUrl,
-    providerPreferenceId: result.id,
-  };
-}
-
-export async function createMercadoPagoRecurringSubscription(
-  input: MercadoPagoCheckoutInput,
-): Promise<MercadoPagoCheckoutResponse> {
-  if (!input.payerEmail) {
-    throw new AppError(
-      "BILLING_PAYER_EMAIL_REQUIRED",
-      "Informe o email do pagador para criar assinatura recorrente.",
-      400,
-    );
-  }
-
-  if (input.amountCents <= 0) {
-    throw new AppError(
-      "BILLING_PRICE_INVALID",
-      "Plano Mercado Pago precisa ter preco maior que zero.",
-      500,
-      { plan: input.plan },
-    );
-  }
-
-  try {
-    const result = await createMercadoPagoPreApprovalWithFetch({
-      ...input,
-      accessToken: requireEnv("MERCADO_PAGO_ACCESS_TOKEN"),
-      payerEmail: input.payerEmail,
-    });
-
-    const checkoutUrl = assertCheckoutUrl(
-      getPreApprovalCheckoutUrl(result),
-      "Mercado Pago nao retornou URL de assinatura.",
-    );
-
-    const providerSubscriptionId = result.id;
-
-    if (!providerSubscriptionId) {
-      throw new AppError(
-        "BILLING_SUBSCRIPTION_ID_MISSING",
-        "Mercado Pago nao retornou identificador da assinatura.",
-        502,
-      );
-    }
-
-    return {
-      provider: "MERCADO_PAGO",
-      checkoutUrl,
-      redirectUrl: checkoutUrl,
-      providerSubscriptionId,
-      providerHttpStatus: result.api_response?.status,
-    };
-  } catch (error) {
-    if (error instanceof AppError) {
-      throw error;
-    }
-
-    throw new AppError(
-      "MERCADO_PAGO_PREAPPROVAL_FAILED",
-      "Mercado Pago recusou a criacao da assinatura.",
-      502,
-      mercadoPagoErrorPayload(error),
     );
   }
 }
@@ -792,9 +647,9 @@ export function verifyMercadoPagoWebhookSignature(
   }
 }
 
-function addOneMonth(date: Date) {
+function addDays(date: Date, days: number) {
   const nextDate = new Date(date);
-  nextDate.setMonth(nextDate.getMonth() + 1);
+  nextDate.setDate(nextDate.getDate() + days);
   return nextDate;
 }
 
@@ -926,7 +781,7 @@ export async function parseMercadoPagoWebhook(
       providerSubscriptionId: metadataSubscriptionId(metadata),
       subscriptionStatus: mapPaymentStatus(payment.status),
       currentPeriodEnd:
-        payment.status === "approved" ? addOneMonth(periodBase) : undefined,
+        payment.status === "approved" ? addDays(periodBase, 30) : undefined,
       payload: { notification: payload, resource: payment },
     };
   }

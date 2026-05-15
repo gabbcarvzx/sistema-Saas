@@ -49,7 +49,7 @@ function checkoutFeedback(checkout: string | undefined) {
       tone: "success" as const,
       title: "Pagamento em processamento",
       message:
-        "Assim que o Mercado Pago confirmar a autorizacao, sua assinatura sera ativada automaticamente.",
+        "Assim que o Mercado Pago confirmar o pagamento, seu periodo mensal sera ativado automaticamente.",
     };
   }
 
@@ -185,7 +185,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
               >
                 <li>Controle de produtos e lojas</li>
                 <li>Alertas de estoque minimo</li>
-                <li>Checkout recorrente Mercado Pago</li>
+                <li>Pagamento mensal via Checkout Pro</li>
               </ul>
               <div className="mt-6">
                 <CheckoutButton
@@ -203,8 +203,8 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
         <div className="flex items-start gap-3">
           <CalendarClock className="mt-0.5 text-cyan-300" size={20} />
           <p className="text-sm leading-6 text-slate-400">
-            Fluxo comercial: anuncio, landing page, pricing/signup, trial,
-            checkout e ativacao por webhook de pagamento.
+            Pagamento mensal via Checkout Pro. Renovacao manual a cada 30 dias,
+            com ativacao automatica por webhook de pagamento aprovado.
           </p>
         </div>
       </section>

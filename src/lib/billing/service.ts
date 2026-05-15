@@ -34,6 +34,12 @@ function getErrorName(error: unknown) {
   return error instanceof Error ? error.name : "UnknownError";
 }
 
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
 type SafeProviderLogValue =
   | string
   | number
@@ -198,15 +204,9 @@ export async function createTenantCheckoutSession(
   const payerEmail = input.payerEmail ?? adminUser?.email;
 
   if (input.provider === "MERCADO_PAGO" && !payerEmail) {
-    logger.error("billing.checkout.payer_email_missing", {
+    logger.warn("billing.checkout.payer_email_missing", {
       tenantId: tenant.id,
     });
-
-    throw new AppError(
-      "BILLING_PAYER_EMAIL_REQUIRED",
-      "Nao foi possivel identificar o email do pagador.",
-      400,
-    );
   }
 
   let checkout: CheckoutResponse;
@@ -441,6 +441,10 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
     event.subscriptionStatus === "CANCELED";
 
   const isActive = event.subscriptionStatus === "ACTIVE";
+  const currentPeriodEnd =
+    isActive && !event.currentPeriodEnd
+      ? addDays(processedAt, 30)
+      : event.currentPeriodEnd;
 
   await prisma.tenantSubscription.upsert({
     where: { tenantId: tenant.id },
@@ -452,7 +456,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       providerCustomerId: event.providerCustomerId,
       providerSubscriptionId: event.providerSubscriptionId,
       currentPeriodStart: isActive ? processedAt : undefined,
-      currentPeriodEnd: event.currentPeriodEnd,
+      currentPeriodEnd,
       cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
       blockedAt: isBlocked ? processedAt : null,
     },
@@ -463,7 +467,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       providerCustomerId: event.providerCustomerId,
       providerSubscriptionId: event.providerSubscriptionId,
       currentPeriodStart: isActive ? processedAt : undefined,
-      currentPeriodEnd: event.currentPeriodEnd,
+      currentPeriodEnd,
       cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
       blockedAt: isBlocked ? processedAt : null,
     },

@@ -6,7 +6,7 @@ import {
   UnauthorizedError,
 } from "@/lib/http-errors";
 import {
-  createMercadoPagoRecurringSubscription,
+  createMercadoPagoCheckoutPreference,
   parseMercadoPagoWebhook,
 } from "@/lib/billing/mercadopago";
 
@@ -74,7 +74,7 @@ export async function createCheckoutSession(
   request: CheckoutRequest,
 ): Promise<CheckoutResponse> {
   if (request.provider === "MERCADO_PAGO") {
-    return createMercadoPagoRecurringSubscription({
+    return createMercadoPagoCheckoutPreference({
       tenantId: request.tenantId,
       tenantSlug: request.tenantSlug,
       plan: request.plan,
