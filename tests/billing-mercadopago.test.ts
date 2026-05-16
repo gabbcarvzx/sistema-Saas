@@ -481,6 +481,7 @@ describe("Mercado Pago billing", () => {
     mocks.prisma.tenantSubscription.findUnique.mockResolvedValue({
       tenantId: "tenant-1",
       planId: "plan-trial",
+      currentPeriodEnd: null,
     });
     mocks.prisma.tenantSubscription.upsert.mockResolvedValue({
       id: "subscription-1",
@@ -506,6 +507,63 @@ describe("Mercado Pago billing", () => {
           currentPeriodEnd: new Date("2026-06-14T12:00:00.000Z"),
           blockedAt: null,
           cancelAtPeriodEnd: false,
+        }),
+      }),
+    );
+  });
+
+  it("webhook de pagamento aprovado renova somando 30 dias ao periodo ativo", async () => {
+    const { POST } = await import("../src/app/api/webhooks/mercadopago/route");
+
+    const rawBody = JSON.stringify({
+      id: "event-payment-renewal",
+      type: "payment",
+      action: "payment.created",
+      data: { id: "777888" },
+    });
+
+    mocks.paymentGet.mockResolvedValue({
+      id: 777888,
+      status: "approved",
+      date_approved: "2026-05-15T12:00:00.000Z",
+      external_reference: "tenant:tenant-1;slug:tenant-a;plan:PROFESSIONAL",
+      payer: { id: "payer-1" },
+      metadata: {},
+    });
+
+    mocks.prisma.tenant.findUnique.mockResolvedValue({
+      id: "tenant-1",
+      slug: "tenant-a",
+    });
+    mocks.prisma.subscriptionPlan.findUnique.mockResolvedValue({
+      id: "plan-professional",
+    });
+    mocks.prisma.paymentEvent.upsert.mockResolvedValue({
+      id: "payment-event-renewal",
+    });
+    mocks.prisma.tenantSubscription.findUnique.mockResolvedValue({
+      tenantId: "tenant-1",
+      planId: "plan-professional",
+      currentPeriodEnd: new Date("2026-06-01T12:00:00.000Z"),
+    });
+    mocks.prisma.tenantSubscription.upsert.mockResolvedValue({
+      id: "subscription-1",
+      status: "ACTIVE",
+    });
+
+    const response = await POST(
+      signedMercadoPagoRequest(rawBody, "777888"),
+      undefined,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.prisma.tenantSubscription.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: "tenant-1" },
+        update: expect.objectContaining({
+          status: "ACTIVE",
+          currentPeriodEnd: new Date("2026-07-01T12:00:00.000Z"),
+          blockedAt: null,
         }),
       }),
     );

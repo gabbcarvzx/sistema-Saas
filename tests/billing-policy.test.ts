@@ -17,6 +17,8 @@ function tenant(
 }
 
 describe("evaluateTenantAccess", () => {
+  const now = new Date("2026-05-16T12:00:00.000Z");
+
   it("allows active trial before trial end", () => {
     const access = evaluateTenantAccess(
       tenant({
@@ -26,6 +28,7 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: new Date("2026-05-20T12:00:00.000Z"),
         blockedAt: null,
       }),
+      now,
     );
 
     expect(access.allowed).toBe(true);
@@ -41,6 +44,7 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: new Date("2026-05-01T12:00:00.000Z"),
         blockedAt: null,
       }),
+      now,
     );
 
     expect(access.allowed).toBe(true);
@@ -56,13 +60,14 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: null,
         blockedAt: null,
       }),
+      now,
     );
 
     expect(access.allowed).toBe(true);
     expect(access.reason).toBe("PLAN_ACTIVE");
   });
 
-  it("allows active paid plan even after period end until billing marks it blocked", () => {
+  it("blocks active paid plan after current period end", () => {
     const access = evaluateTenantAccess(
       tenant({
         id: "sub-1",
@@ -71,10 +76,11 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: new Date("2026-05-01T12:00:00.000Z"),
         blockedAt: null,
       }),
+      now,
     );
 
-    expect(access.allowed).toBe(true);
-    expect(access.reason).toBe("PLAN_ACTIVE");
+    expect(access.allowed).toBe(false);
+    expect(access.reason).toBe("SUBSCRIPTION_EXPIRED");
   });
 
   it("allows active paid plan even when blockedAt has stale audit data", () => {
@@ -86,6 +92,7 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: new Date("2026-05-20T12:00:00.000Z"),
         blockedAt: new Date("2026-05-01T12:00:00.000Z"),
       }),
+      now,
     );
 
     expect(access.allowed).toBe(true);
@@ -101,6 +108,7 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: null,
         blockedAt: new Date("2026-05-01T12:00:00.000Z"),
       }),
+      now,
     );
 
     expect(access.allowed).toBe(false);
@@ -116,6 +124,7 @@ describe("evaluateTenantAccess", () => {
         currentPeriodEnd: null,
         blockedAt: new Date("2026-05-01T12:00:00.000Z"),
       }),
+      now,
     );
 
     expect(access.allowed).toBe(false);

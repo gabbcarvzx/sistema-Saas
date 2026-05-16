@@ -40,6 +40,44 @@ function addDays(date: Date, days: number) {
   return nextDate;
 }
 
+function isAfter(left: Date | null | undefined, right: Date) {
+  return Boolean(left && left.getTime() > right.getTime());
+}
+
+function isCheckoutProPayment(eventType: string) {
+  return eventType.toLowerCase().includes("payment");
+}
+
+function resolveActivePeriodEnd(options: {
+  eventType: string;
+  eventPeriodEnd?: Date;
+  existingPeriodEnd?: Date | null;
+  processedAt: Date;
+}) {
+  if (!options.eventPeriodEnd) {
+    const existingPeriodEnd = options.existingPeriodEnd;
+    const base =
+      existingPeriodEnd && isAfter(existingPeriodEnd, options.processedAt)
+        ? existingPeriodEnd
+        : options.processedAt;
+
+    return addDays(base, 30);
+  }
+
+  if (!isCheckoutProPayment(options.eventType)) {
+    return options.eventPeriodEnd;
+  }
+
+  const eventPeriodStart = addDays(options.eventPeriodEnd, -30);
+  const existingPeriodEnd = options.existingPeriodEnd;
+  const base =
+    existingPeriodEnd && isAfter(existingPeriodEnd, eventPeriodStart)
+      ? existingPeriodEnd
+      : eventPeriodStart;
+
+  return addDays(base, 30);
+}
+
 type SafeProviderLogValue =
   | string
   | number
@@ -334,6 +372,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
   let subscriptionFromProvider: {
     tenantId: string;
     planId: string;
+    currentPeriodEnd: Date | null;
     tenant: { id: string; slug: string };
   } | null = null;
 
@@ -346,6 +385,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       select: {
         tenantId: true,
         planId: true,
+        currentPeriodEnd: true,
         tenant: {
           select: {
             id: true,
@@ -415,7 +455,7 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
     subscriptionFromProvider ??
     (await prisma.tenantSubscription.findUnique({
       where: { tenantId: tenant.id },
-      select: { tenantId: true, planId: true },
+      select: { tenantId: true, planId: true, currentPeriodEnd: true },
     }));
 
   const planId = plan?.id ?? existingSubscription?.planId;
@@ -441,10 +481,14 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
     event.subscriptionStatus === "CANCELED";
 
   const isActive = event.subscriptionStatus === "ACTIVE";
-  const currentPeriodEnd =
-    isActive && !event.currentPeriodEnd
-      ? addDays(processedAt, 30)
-      : event.currentPeriodEnd;
+  const currentPeriodEnd = isActive
+    ? resolveActivePeriodEnd({
+        eventType: event.eventType,
+        eventPeriodEnd: event.currentPeriodEnd,
+        existingPeriodEnd: existingSubscription?.currentPeriodEnd,
+        processedAt,
+      })
+    : event.currentPeriodEnd;
 
   await prisma.tenantSubscription.upsert({
     where: { tenantId: tenant.id },

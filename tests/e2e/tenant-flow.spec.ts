@@ -5,6 +5,7 @@ test.describe.configure({ mode: "serial" });
 
 const timestamp = Date.now();
 const baseURL = "http://127.0.0.1:3000";
+const dayMs = 24 * 60 * 60 * 1000;
 
 const tenantA = {
   companyName: `Oficina Teste ${timestamp}`,
@@ -190,7 +191,12 @@ test.describe("Fluxo SaaS multi-tenant", () => {
     for (const status of ["TRIAL", "ACTIVE"] as const) {
       await prisma.tenantSubscription.updateMany({
         where: { tenant: { slug: tenantA.tenantSlug } },
-        data: { status },
+        data: {
+          status,
+          blockedAt: null,
+          currentPeriodEnd:
+            status === "ACTIVE" ? new Date(Date.now() + 30 * dayMs) : undefined,
+        },
       });
 
       await login(page);
@@ -198,6 +204,23 @@ test.describe("Fluxo SaaS multi-tenant", () => {
       await expect(page).not.toHaveURL(/billing\/blocked/);
       await expect(page.getByText("Dashboard executivo")).toBeVisible();
     }
+  });
+
+  test("ACTIVE vencido bloqueia app operacional", async ({ page }) => {
+    await prisma.tenantSubscription.updateMany({
+      where: { tenant: { slug: tenantA.tenantSlug } },
+      data: {
+        status: "ACTIVE",
+        currentPeriodEnd: new Date(Date.now() - dayMs),
+        blockedAt: null,
+      },
+    });
+
+    await login(page);
+    await page.goto("/app/dashboard");
+
+    await expect(page).toHaveURL(/billing\/blocked/);
+    await expect(page.getByText(/acesso operacional/i)).toBeVisible();
   });
 
   test("BLOCKED e CANCELED bloqueiam app operacional", async ({ page }) => {
@@ -228,6 +251,12 @@ test.describe("Fluxo SaaS multi-tenant", () => {
     await page.goto("/app/billing");
     await expect(page).not.toHaveURL(/billing\/blocked/);
     await expect(page.getByText("Billing e assinatura")).toBeVisible();
+
+    await page.goto("/app/account");
+    await expect(page).not.toHaveURL(/billing\/blocked/);
+    await expect(
+      page.getByRole("heading", { name: /Dados da empresa/i }),
+    ).toBeVisible();
 
     const checkout = await page.request.post("/api/billing/create-checkout", {
       data: {

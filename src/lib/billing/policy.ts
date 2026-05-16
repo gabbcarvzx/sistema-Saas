@@ -25,6 +25,7 @@ export type TenantAccessResult = {
     | "PLAN_ACTIVE"
     | "TENANT_SUSPENDED"
     | "SUBSCRIPTION_MISSING"
+    | "SUBSCRIPTION_EXPIRED"
     | "SUBSCRIPTION_BLOCKED"
     | "SUBSCRIPTION_CANCELED";
   tenantId: string;
@@ -37,6 +38,7 @@ export type TenantAccessResult = {
 
 export function evaluateTenantAccess(
   tenant: TenantAccessSnapshot,
+  now = new Date(),
 ): TenantAccessResult {
   const base: Omit<TenantAccessResult, "allowed" | "reason"> = {
     tenantId: tenant.id,
@@ -66,6 +68,14 @@ export function evaluateTenantAccess(
 
   if (tenant.subscription.status === "TRIAL") {
     return { ...base, allowed: true, reason: "TRIAL_ACTIVE" };
+  }
+
+  if (
+    tenant.subscription.status === "ACTIVE" &&
+    tenant.subscription.currentPeriodEnd &&
+    tenant.subscription.currentPeriodEnd.getTime() < now.getTime()
+  ) {
+    return { ...base, allowed: false, reason: "SUBSCRIPTION_EXPIRED" };
   }
 
   return { ...base, allowed: true, reason: "PLAN_ACTIVE" };

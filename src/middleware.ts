@@ -24,8 +24,16 @@ function isProtectedAppPath(pathname: string) {
   );
 }
 
+function isAccountRecoveryPath(pathname: string) {
+  return pathname === "/app/account" || pathname.startsWith("/app/account/");
+}
+
 function isBillingRecoveryPath(pathname: string) {
-  return pathname === "/app/billing" || pathname.startsWith("/app/billing/");
+  return (
+    pathname === "/app/billing" ||
+    pathname.startsWith("/app/billing/") ||
+    isAccountRecoveryPath(pathname)
+  );
 }
 
 function normalizeSlug(value: string | null | undefined) {
