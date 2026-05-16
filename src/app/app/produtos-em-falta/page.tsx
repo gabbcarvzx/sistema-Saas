@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, TriangleAlert } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, TriangleAlert } from "lucide-react";
 import { getTenantContext } from "@/lib/tenant-context";
 import { prisma } from "@/lib/prisma";
 
@@ -32,13 +32,14 @@ export default async function MissingProductsPage() {
       <section className="flex flex-col gap-4 rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-xl shadow-black/10 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm font-semibold text-rose-300">
-            Reposicao prioritaria
+            Reposição prioritária
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
             Produtos em falta ou com estoque baixo
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            Lista filtrada por quantidade menor ou igual ao estoque minimo.
+            Priorize a reposição dos itens que podem travar vendas, atendimento
+            ou produção.
           </p>
         </div>
         <Link
@@ -66,7 +67,7 @@ export default async function MissingProductsPage() {
         <article className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
           <p className="text-sm text-slate-400">Regra</p>
           <p className="mt-3 text-lg font-semibold text-white">
-            quantity &lt;= minStock
+            Estoque atual &lt;= mínimo
           </p>
         </article>
       </section>
@@ -75,10 +76,10 @@ export default async function MissingProductsPage() {
         <div className="flex items-center justify-between gap-4 border-b border-white/10 p-5">
           <div>
             <h2 className="text-lg font-semibold text-white">
-              Itens para reposicao
+              Itens para reposição
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Ordenados pela menor quantidade em estoque.
+              Ordenados pela menor quantidade em estoque para acelerar a compra.
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm font-semibold text-rose-200">
@@ -106,9 +107,26 @@ export default async function MissingProductsPage() {
                 <tr>
                   <td
                     colSpan={8}
-                    className="px-5 py-12 text-center text-sm text-slate-500"
+                    className="px-5 py-12 text-center"
                   >
-                    Nenhum produto com estoque baixo.
+                    <div className="mx-auto max-w-md">
+                      <CheckIcon />
+                      <h3 className="mt-4 text-base font-semibold text-white">
+                        Nenhum produto com estoque baixo agora
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-400">
+                        Ótimo sinal: seus produtos cadastrados estão acima do
+                        mínimo definido. Continue revisando os alertas antes de
+                        fazer novas compras.
+                      </p>
+                      <Link
+                        href="/app/products"
+                        className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-300 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+                      >
+                        Ver produtos
+                        <ArrowRight size={17} />
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -149,5 +167,13 @@ export default async function MissingProductsPage() {
         </div>
       </article>
     </div>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-300">
+      <CheckCircle2 size={24} />
+    </span>
   );
 }

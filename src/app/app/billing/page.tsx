@@ -1,4 +1,11 @@
-import { CalendarClock, CheckCircle2, CreditCard, ShieldAlert } from "lucide-react";
+import {
+  CalendarClock,
+  CheckCircle2,
+  CreditCard,
+  RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
 import { getAppContext } from "@/lib/app-context";
 import { CheckoutButton } from "@/app/app/billing/checkout-button";
 
@@ -14,20 +21,20 @@ const paidPlans = [
     code: "STARTER" as const,
     name: "Starter",
     priceCents: 3900,
-    description: "Para negocios pequenos com estoque enxuto.",
+    description: "Para negócios pequenos com estoque enxuto.",
   },
   {
     code: "PROFESSIONAL" as const,
     name: "Pro",
     priceCents: 7900,
-    description: "Mais escolhido para operacao com lojas e alertas.",
+    description: "Mais escolhido para operação com lojas e alertas.",
     featured: true,
   },
   {
     code: "ENTERPRISE" as const,
     name: "Business",
     priceCents: 14900,
-    description: "Para operacoes com mais unidades e volume.",
+    description: "Para operações com mais unidades e volume.",
   },
 ];
 
@@ -40,7 +47,31 @@ type BillingPageProps = {
 function formatDate(date: Date | null | undefined) {
   return date
     ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium" }).format(date)
-    : "Nao informado";
+    : "Não informado";
+}
+
+function subscriptionLabel(status: string) {
+  const labels: Record<string, string> = {
+    TRIAL: "Teste gratuito",
+    ACTIVE: "Ativo",
+    BLOCKED: "Bloqueado",
+    CANCELED: "Cancelado",
+    MISSING: "Sem assinatura",
+  };
+
+  return labels[status] ?? status;
+}
+
+function subscriptionTone(status: string) {
+  if (status === "ACTIVE") {
+    return "border-emerald-400/20 bg-emerald-400/10 text-emerald-100";
+  }
+
+  if (status === "TRIAL") {
+    return "border-cyan-400/20 bg-cyan-400/10 text-cyan-100";
+  }
+
+  return "border-rose-400/20 bg-rose-400/10 text-rose-100";
 }
 
 function checkoutFeedback(checkout: string | undefined) {
@@ -49,7 +80,7 @@ function checkoutFeedback(checkout: string | undefined) {
       tone: "success" as const,
       title: "Pagamento em processamento",
       message:
-        "Assim que o Mercado Pago confirmar o pagamento, seu periodo mensal sera ativado automaticamente.",
+        "Assim que o Mercado Pago confirmar o pagamento, seu período mensal será ativado automaticamente.",
     };
   }
 
@@ -58,7 +89,7 @@ function checkoutFeedback(checkout: string | undefined) {
       tone: "warning" as const,
       title: "Checkout cancelado",
       message:
-        "Voce pode tentar novamente quando quiser. O acesso de recuperacao continua disponivel com sua sessao valida.",
+        "Você pode tentar novamente quando quiser. O acesso de recuperação continua disponível com sua sessão válida.",
     };
   }
 
@@ -71,8 +102,8 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
   const status = subscription?.status ?? "MISSING";
   const feedback = checkoutFeedback(searchParams?.checkout);
   const actionLabel =
-    status === "BLOCKED" || status === "CANCELED"
-      ? "Atualizar pagamento"
+    status === "ACTIVE" || status === "BLOCKED" || status === "CANCELED"
+      ? "Renovar agora"
       : "Assinar agora";
 
   return (
@@ -82,12 +113,11 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
           Billing e assinatura
         </p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-          Controle comercial do tenant
+          Assinatura mensal do StockPro
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-          Esta pagina continua acessivel para tenants bloqueados com sessao
-          valida, permitindo recuperacao de pagamento sem abrir dados
-          operacionais.
+          Pagamento mensal via Mercado Pago. Após a aprovação, o acesso é
+          liberado por 30 dias e pode ser renovado manualmente quando precisar.
         </p>
       </section>
 
@@ -112,12 +142,19 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
           <h2 className="mt-5 text-lg font-semibold text-white">
             Plano atual
           </h2>
+          <div
+            className={`mt-4 inline-flex rounded-lg border px-3 py-2 text-sm font-semibold ${subscriptionTone(
+              status,
+            )}`}
+          >
+            {subscriptionLabel(status)}
+          </div>
           <dl className="mt-5 space-y-4">
             {[
               ["Plano", subscription?.plan.name ?? "Trial"],
-              ["Status", status],
-              ["Fim do trial", formatDate(subscription?.trialEndsAt)],
-              ["Fim do periodo atual", formatDate(subscription?.currentPeriodEnd)],
+              ["Status", subscriptionLabel(status)],
+              ["Fim do teste gratuito", formatDate(subscription?.trialEndsAt)],
+              ["Fim do período atual", formatDate(subscription?.currentPeriodEnd)],
             ].map(([label, value]) => (
               <div
                 key={label}
@@ -142,8 +179,18 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
               )}
               <p className="text-sm leading-6 text-amber-100">
                 {status === "ACTIVE"
-                  ? "Sua assinatura esta ativa e pronta para operacao."
-                  : "Escolha um plano para liberar ou manter a operacao comercial."}
+                  ? "Sua assinatura está ativa e pronta para operação."
+                  : "Escolha um plano para liberar ou manter a operação comercial com segurança."}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-4">
+            <div className="flex items-start gap-3">
+              <RefreshCw className="mt-0.5 text-cyan-300" size={18} />
+              <p className="text-sm leading-6 text-slate-300">
+                Nesta versão, a renovação não é automática. Você paga pelo
+                Checkout Pro e recebe mais 30 dias após a confirmação.
               </p>
             </div>
           </div>
@@ -184,8 +231,8 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
                 }`}
               >
                 <li>Controle de produtos e lojas</li>
-                <li>Alertas de estoque minimo</li>
-                <li>Pagamento mensal via Checkout Pro</li>
+                <li>Alertas de estoque mínimo</li>
+                <li>Pagamento mensal via Mercado Pago</li>
               </ul>
               <div className="mt-6">
                 <CheckoutButton
@@ -200,12 +247,34 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
       </section>
 
       <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-xl shadow-black/10">
-        <div className="flex items-start gap-3">
-          <CalendarClock className="mt-0.5 text-cyan-300" size={20} />
-          <p className="text-sm leading-6 text-slate-400">
-            Pagamento mensal via Checkout Pro. Renovacao manual a cada 30 dias,
-            com ativacao automatica por webhook de pagamento aprovado.
-          </p>
+        <div className="grid gap-4 md:grid-cols-3">
+          {[
+            {
+              title: "Checkout seguro",
+              text: "Pix, cartão ou boleto dentro do ambiente Mercado Pago.",
+              icon: ShieldCheck,
+            },
+            {
+              title: "30 dias de acesso",
+              text: "O webhook de pagamento aprovado atualiza seu período atual.",
+              icon: CalendarClock,
+            },
+            {
+              title: "Renovacao manual",
+              text: "Quando o período acabar, volte aqui e clique em Renovar agora.",
+              icon: RefreshCw,
+            },
+          ].map((item) => (
+            <div key={item.title} className="flex items-start gap-3">
+              <item.icon className="mt-0.5 text-cyan-300" size={20} />
+              <div>
+                <h2 className="text-sm font-semibold text-white">{item.title}</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-400">
+                  {item.text}
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
     </div>

@@ -1,7 +1,9 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import {
+  ArrowRight,
   Edit3,
   Loader2,
   MapPin,
@@ -67,7 +69,7 @@ export function StoresClient() {
       const response = await fetch("/api/stores", { cache: "no-store" });
 
       if (!response.ok) {
-        throw new Error("Nao foi possivel carregar as lojas.");
+        throw new Error("Não foi possível carregar as lojas.");
       }
 
       setStores((await response.json()) as StoreRow[]);
@@ -75,7 +77,7 @@ export function StoresClient() {
       setFeedback(
         error instanceof Error
           ? error.message
-          : "Nao foi possivel carregar as lojas.",
+          : "Não foi possível carregar as lojas.",
       );
     } finally {
       setIsLoading(false);
@@ -122,7 +124,7 @@ export function StoresClient() {
         });
       }
 
-      setFeedback(body.message ?? "Nao foi possivel salvar a loja.");
+      setFeedback(body.message ?? "Não foi possível salvar a loja.");
       setIsSaving(false);
       return;
     }
@@ -150,7 +152,7 @@ export function StoresClient() {
 
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as ApiError;
-      setFeedback(body.message ?? "Nao foi possivel excluir a loja.");
+      setFeedback(body.message ?? "Não foi possível excluir a loja.");
       setIsDeleting(null);
       return;
     }
@@ -171,11 +173,11 @@ export function StoresClient() {
           Unidades e pontos de venda
         </p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-          Lojas do tenant atual
+          Separe seu estoque por loja, filial ou unidade
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-          Cadastre matriz, filiais, estoque central, assistencia tecnica ou
-          qualquer local fisico que precise controlar produtos.
+          Cadastre matriz, filiais, estoque central, assistência técnica ou
+          qualquer ponto de venda que precise acompanhar produtos com clareza.
         </p>
       </section>
 
@@ -190,7 +192,7 @@ export function StoresClient() {
                 {editingStore ? "Editar loja" : "Nova loja"}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Todas as lojas sao gravadas com tenantId.
+                Use nomes simples para facilitar filtros e relatórios.
               </p>
             </div>
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-300">
@@ -207,11 +209,11 @@ export function StoresClient() {
               />
             </Field>
 
-            <Field label="Localizacao" error={errors.location?.message}>
+            <Field label="Localização" error={errors.location?.message}>
               <input
                 {...register("location")}
                 className="form-input"
-                placeholder="Rua, bairro ou unidade"
+                placeholder="Rua, bairro, cidade ou unidade"
               />
             </Field>
           </div>
@@ -252,7 +254,7 @@ export function StoresClient() {
                 Lojas cadastradas
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                {stores.length} loja(s) do tenant atual
+                {stores.length} loja(s) pronta(s) para organizar produtos
               </p>
             </div>
             <button
@@ -271,8 +273,23 @@ export function StoresClient() {
                 Carregando lojas...
               </div>
             ) : stores.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500">
-                Nenhuma loja cadastrada.
+              <div className="p-8 text-center">
+                <Store className="mx-auto text-emerald-300" size={30} />
+                <h3 className="mt-4 text-base font-semibold text-white">
+                  Você ainda não cadastrou lojas
+                </h3>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">
+                  Crie sua primeira unidade para separar produtos por local,
+                  entender onde está o estoque e evitar reposição no lugar
+                  errado.
+                </p>
+                <Link
+                  href="/app/training"
+                  className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-white/10 px-4 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.06]"
+                >
+                  Ver treinamento
+                  <ArrowRight size={17} />
+                </Link>
               </div>
             ) : (
               stores.map((store) => (
@@ -291,7 +308,7 @@ export function StoresClient() {
                         </p>
                         <p className="mt-1 flex items-center gap-1 truncate text-sm text-slate-500">
                           <MapPin size={14} />
-                          {store.location ?? "Localizacao nao informada"}
+                          {store.location ?? "Localização não informada"}
                         </p>
                       </div>
                     </div>

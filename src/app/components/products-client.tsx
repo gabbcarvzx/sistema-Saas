@@ -1,10 +1,12 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import {
   AlertTriangle,
   Edit3,
   Loader2,
+  PackagePlus,
   Plus,
   RefreshCcw,
   Save,
@@ -112,7 +114,7 @@ export function ProductsClient() {
       ]);
 
       if (!storesResponse.ok || !productsResponse.ok) {
-        throw new Error("Nao foi possivel carregar os dados.");
+        throw new Error("Não foi possível carregar os dados.");
       }
 
       const [storesData, productsData] = (await Promise.all([
@@ -130,7 +132,7 @@ export function ProductsClient() {
       setFeedback(
         error instanceof Error
           ? error.message
-          : "Nao foi possivel carregar os dados.",
+          : "Não foi possível carregar os dados.",
       );
     } finally {
       setIsLoading(false);
@@ -219,7 +221,7 @@ export function ProductsClient() {
         setError("code", { message: body.message ?? "SKU ja cadastrado." });
       }
 
-      setFeedback(body.message ?? "Nao foi possivel salvar o produto.");
+      setFeedback(body.message ?? "Não foi possível salvar o produto.");
       setIsSaving(false);
       return;
     }
@@ -249,7 +251,7 @@ export function ProductsClient() {
 
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as ApiError;
-      setFeedback(body.message ?? "Nao foi possivel excluir o produto.");
+      setFeedback(body.message ?? "Não foi possível excluir o produto.");
       setIsDeleting(null);
       return;
     }
@@ -271,11 +273,11 @@ export function ProductsClient() {
             Produtos e estoque
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-            Cadastro de produtos para qualquer nicho local
+            Produtos organizados para vender sem perder controle
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            Controle SKU, categoria, preco, loja, estoque atual e estoque minimo
-            com isolamento por tenant.
+            Cadastre SKU, categoria, preço, loja, estoque atual e estoque
+            mínimo para enxergar o que precisa de reposição antes de faltar.
           </p>
         </div>
 
@@ -302,6 +304,29 @@ export function ProductsClient() {
         </div>
       </section>
 
+      {!isLoading && stores.length === 0 && (
+        <section className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-5 shadow-xl shadow-black/10">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-amber-100">
+                Cadastre uma loja antes de adicionar produtos
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-amber-50/80">
+                Cada produto precisa pertencer a uma unidade. Isso permite
+                acompanhar matriz, filial ou estoque central sem misturar dados.
+              </p>
+            </div>
+            <Link
+              href="/app/stores"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-amber-200 px-4 text-sm font-semibold text-slate-950 transition hover:bg-amber-100"
+            >
+              Criar loja
+              <Plus size={17} />
+            </Link>
+          </div>
+        </section>
+      )}
+
       <section className="grid gap-6 2xl:grid-cols-[390px_1fr]">
         <form
           onSubmit={handleSubmit(onSubmit)}
@@ -313,7 +338,7 @@ export function ProductsClient() {
                 {editingProduct ? "Editar produto" : "Novo produto"}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                O SKU e unico dentro de cada tenant.
+                Use um codigo unico para localizar itens rapidamente.
               </p>
             </div>
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-400/10 text-cyan-300">
@@ -326,11 +351,11 @@ export function ProductsClient() {
               <input
                 {...register("name")}
                 className="form-input"
-                placeholder="Filtro de oleo"
+                placeholder="Filtro de oleo, arroz 5kg, camiseta preta"
               />
             </Field>
 
-            <Field label="SKU / codigo" error={errors.code?.message}>
+              <Field label="SKU / código interno" error={errors.code?.message}>
               <input
                 {...register("code")}
                 className="form-input"
@@ -361,7 +386,7 @@ export function ProductsClient() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Estoque minimo" error={errors.minStock?.message}>
+              <Field label="Estoque mínimo" error={errors.minStock?.message}>
                 <input
                   {...register("minStock", { valueAsNumber: true })}
                   className="form-input"
@@ -380,7 +405,7 @@ export function ProductsClient() {
               </Field>
             </div>
 
-            <Field label="Loja" error={errors.storeId?.message}>
+            <Field label="Loja ou unidade" error={errors.storeId?.message}>
               <select {...register("storeId")} className="form-input">
                 <option value="">Selecione uma loja</option>
                 {stores.map((store) => (
@@ -429,7 +454,8 @@ export function ProductsClient() {
                   Lista de produtos
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  {filteredProducts.length} produto(s) encontrado(s)
+                  {filteredProducts.length} produto(s) encontrado(s) para
+                  compra, venda e reposição
                 </p>
               </div>
               <button
@@ -508,9 +534,30 @@ export function ProductsClient() {
                   <tr>
                     <td
                       colSpan={9}
-                      className="px-5 py-12 text-center text-sm text-slate-500"
+                      className="px-5 py-12 text-center"
                     >
-                      Nenhum produto encontrado.
+                      <div className="mx-auto max-w-md">
+                        <PackagePlus
+                          className="mx-auto text-cyan-300"
+                          size={28}
+                        />
+                        <h3 className="mt-4 text-base font-semibold text-white">
+                          {products.length === 0
+                            ? "Você ainda não cadastrou produtos"
+                            : "Nenhum produto encontrado com estes filtros"}
+                        </h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-400">
+                          {products.length === 0
+                            ? "Comece adicionando seus itens mais vendidos para acompanhar estoque, valor parado e alertas em tempo real."
+                            : "Ajuste a busca, a loja ou o status para encontrar outros itens do estoque."}
+                        </p>
+                        {products.length === 0 && (
+                          <p className="mt-3 text-sm font-semibold text-cyan-200">
+                            Preencha o formulario ao lado para cadastrar o
+                            primeiro produto.
+                          </p>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ) : (

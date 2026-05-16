@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import {
   BarChart3,
+  BookOpenCheck,
   Building2,
   CreditCard,
   LayoutDashboard,
@@ -46,6 +47,11 @@ const navItems = [
     icon: Store,
   },
   {
+    label: "Treinamento",
+    href: "/app/training",
+    icon: BookOpenCheck,
+  },
+  {
     label: "Conta",
     href: "/app/account",
     icon: UserCircle,
@@ -56,6 +62,18 @@ const navItems = [
     icon: CreditCard,
   },
 ];
+
+function subscriptionLabel(status: string) {
+  const labels: Record<string, string> = {
+    TRIAL: "Teste gratuito",
+    ACTIVE: "Ativo",
+    BLOCKED: "Bloqueado",
+    CANCELED: "Cancelado",
+    MISSING: "Sem assinatura",
+  };
+
+  return labels[status] ?? status;
+}
 
 function subscriptionTone(status: string) {
   if (status === "ACTIVE") {
@@ -96,7 +114,7 @@ export function AppShell({ children, tenant, user }: AppShellProps) {
               StockPro
             </span>
             <span className="block text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-              SaaS
+              Estoque SaaS
             </span>
           </span>
         </Link>
@@ -121,11 +139,11 @@ export function AppShell({ children, tenant, user }: AppShellProps) {
               tenant.subscriptionStatus,
             )}`}
           >
-            {tenant.subscriptionStatus}
+            {subscriptionLabel(tenant.subscriptionStatus)}
           </div>
           {tenant.subscriptionStatus === "TRIAL" && tenant.trialEndsAt && (
             <p className="mt-3 text-xs text-slate-500">
-              Trial ate {formatShortDate(tenant.trialEndsAt)}
+              Teste gratuito até {formatShortDate(tenant.trialEndsAt)}
             </p>
           )}
         </div>
@@ -158,7 +176,7 @@ export function AppShell({ children, tenant, user }: AppShellProps) {
             </p>
             <p className="mt-1 truncate text-xs text-slate-500">{user.email}</p>
             <p className="mt-3 inline-flex rounded-md bg-white/[0.06] px-2 py-1 text-xs font-semibold text-slate-300">
-              {user.role}
+              {user.role === "ADMIN" ? "Administrador" : "Equipe"}
             </p>
           </div>
           <button
@@ -180,7 +198,7 @@ export function AppShell({ children, tenant, user }: AppShellProps) {
                   {tenant.name}
                 </p>
                 <p className="mt-1 truncate text-sm text-slate-400">
-                  Controle comercial de estoque multi-nicho
+                  Estoque, lojas e assinatura em um painel seguro
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -189,7 +207,7 @@ export function AppShell({ children, tenant, user }: AppShellProps) {
                     tenant.subscriptionStatus,
                   )}`}
                 >
-                  {tenant.subscriptionStatus}
+                  {subscriptionLabel(tenant.subscriptionStatus)}
                 </span>
                 <form action="/api/logout" method="post">
                   <button

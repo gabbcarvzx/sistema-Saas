@@ -10,7 +10,19 @@ function formatDate(date: Date | null | undefined) {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(date)
-    : "Nao informado";
+    : "Não informado";
+}
+
+function subscriptionLabel(status: string | undefined) {
+  const labels: Record<string, string> = {
+    TRIAL: "Teste gratuito",
+    ACTIVE: "Ativo",
+    BLOCKED: "Bloqueado",
+    CANCELED: "Cancelado",
+    MISSING: "Sem assinatura",
+  };
+
+  return labels[status ?? "MISSING"] ?? status ?? "Sem assinatura";
 }
 
 export default async function AccountPage() {
@@ -20,13 +32,13 @@ export default async function AccountPage() {
   const items = [
     ["Empresa", tenant.name],
     ["Slug", tenant.slug],
-    ["Email de suporte", tenant.supportEmail ?? "Nao informado"],
+    ["Email de suporte", tenant.supportEmail ?? "Não informado"],
     ["Usuario", user.name],
     ["Email do usuario", user.email],
-    ["Role", user.role],
-    ["Status da assinatura", subscription?.status ?? "MISSING"],
-    ["Fim do trial", formatDate(subscription?.trialEndsAt)],
-    ["Fim do periodo atual", formatDate(subscription?.currentPeriodEnd)],
+    ["Perfil", user.role === "ADMIN" ? "Administrador" : "Equipe"],
+    ["Status da assinatura", subscriptionLabel(subscription?.status)],
+    ["Fim do teste gratuito", formatDate(subscription?.trialEndsAt)],
+    ["Fim do período atual", formatDate(subscription?.currentPeriodEnd)],
   ];
 
   return (
@@ -36,11 +48,12 @@ export default async function AccountPage() {
           Conta e tenant
         </p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-          Dados da empresa e do usuario logado
+          Dados da empresa e do usuário logado
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-          Esta tela mostra apenas informacoes resolvidas pela sessao atual,
-          sem confiar em query publica para acesso a dados sensiveis.
+          Acompanhe os dados da empresa, usuário administrador e assinatura
+          vinculada a esta sessão. Tudo é separado por tenant para evitar
+          mistura de informações entre clientes.
         </p>
       </section>
 
@@ -53,7 +66,7 @@ export default async function AccountPage() {
             <div>
               <h2 className="font-semibold text-white">Resumo da conta</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Identidade operacional do tenant.
+                Identidade operacional da sua empresa no StockPro.
               </p>
             </div>
           </div>
@@ -82,8 +95,8 @@ export default async function AccountPage() {
               Isolamento multi-tenant
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-400">
-              Seus dados sao filtrados por tenantId em produtos, lojas, usuarios
-              e assinatura.
+              Seus dados são filtrados por tenantId em produtos, lojas, usuários
+              e assinatura, mantendo cada cliente em um espaço separado.
             </p>
           </article>
 
@@ -95,15 +108,15 @@ export default async function AccountPage() {
               Assinatura atual
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-400">
-              Plano {subscription?.plan.name ?? "nao configurado"} com status{" "}
-              {subscription?.status ?? "MISSING"}.
+              Plano {subscription?.plan.name ?? "não configurado"} com status{" "}
+              {subscriptionLabel(subscription?.status)}.
             </p>
             <Link
               href="/app/billing"
               className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
             >
               <CreditCard size={17} />
-              Ir para billing
+              Gerenciar assinatura
             </Link>
           </article>
 

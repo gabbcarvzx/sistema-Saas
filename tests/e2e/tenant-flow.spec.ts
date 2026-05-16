@@ -54,16 +54,22 @@ test.describe("Fluxo SaaS multi-tenant", () => {
 
     await expect(page.getByText("Pare de perder dinheiro")).toBeVisible();
     await expect(
-      page.getByRole("link", { name: /Comecar teste gratis/i }).first(),
+      page.getByRole("link", { name: /Começar teste grátis/i }).first(),
     ).toBeVisible();
   });
 
   test("pricing publico mostra os 3 planos", async ({ page }) => {
     await page.goto("/pricing");
 
-    await expect(page.getByRole("heading", { name: "Starter" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Pro" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Business" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Starter", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Pro", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Business", exact: true }),
+    ).toBeVisible();
     await expect(page.getByText("Mais escolhido")).toBeVisible();
   });
 
@@ -118,7 +124,9 @@ test.describe("Fluxo SaaS multi-tenant", () => {
     await login(page);
     await page.goto("/app/account");
 
-    await expect(page.getByText("Dados da empresa")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Dados da empresa/i }),
+    ).toBeVisible();
     await expect(page.getByText(tenantA.tenantSlug).first()).toBeVisible();
   });
 
@@ -133,6 +141,17 @@ test.describe("Fluxo SaaS multi-tenant", () => {
     await expect(
       page.getByRole("button", { name: /Assinar agora/i }).first(),
     ).toBeVisible();
+  });
+
+  test("/app/training autenticado orienta primeiros passos", async ({ page }) => {
+    await login(page);
+    await page.goto("/app/training");
+
+    await expect(page).not.toHaveURL(/login/);
+    await expect(page.getByRole("heading", { name: /Aprenda o fluxo ideal/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Ir para Produtos/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Ir para Lojas/i }).first()).toBeVisible();
+    await expect(page.getByText("Checklist de primeiros passos")).toBeVisible();
   });
 
   test("logout remove sessao e /app volta para login", async ({ page, context }) => {

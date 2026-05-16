@@ -18,18 +18,18 @@ type CheckoutResponse = {
 
 function friendlyCheckoutMessage(status: number, body: CheckoutResponse) {
   if (body.code === "BILLING_PAYER_EMAIL_REQUIRED") {
-    return "Nao conseguimos identificar o email da conta. Atualize seus dados e tente novamente.";
+    return "Não conseguimos identificar o email da conta. Atualize seus dados e tente novamente.";
   }
 
   if (body.code === "CONFIGURATION_ERROR") {
-    return "Checkout temporariamente indisponivel. Nossa equipe precisa revisar a configuracao de pagamento.";
+    return "Checkout temporariamente indisponível. Nossa equipe precisa revisar a configuração de pagamento.";
   }
 
   if (status >= 500) {
-    return "Nao foi possivel conectar ao Mercado Pago agora. Tente novamente em alguns minutos.";
+    return "Não foi possível conectar ao Mercado Pago agora. Tente novamente em alguns minutos.";
   }
 
-  return body.message ?? "Nao foi possivel iniciar o checkout.";
+  return body.message ?? "Não foi possível iniciar o checkout.";
 }
 
 export function CheckoutButton({ label, payerEmail, plan }: CheckoutButtonProps) {
@@ -62,7 +62,7 @@ export function CheckoutButton({ label, payerEmail, plan }: CheckoutButtonProps)
 
       window.location.href = redirectUrl;
     } catch {
-      setFeedback("Nao foi possivel iniciar o checkout. Verifique sua conexao e tente novamente.");
+      setFeedback("Não foi possível iniciar o checkout. Verifique sua conexão e tente novamente.");
       setIsLoading(false);
     }
   }
