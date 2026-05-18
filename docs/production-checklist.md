@@ -24,7 +24,7 @@
 
 - `DEFAULT_TENANT_SLUG`, `DEFAULT_TENANT_NAME`, `SUPPORT_EMAIL`.
 - `MERCADO_PAGO_WEBHOOK_TOLERANCE_MS`: tolerancia anti-replay do webhook, padrao `600000`.
-- `MERCADO_PAGO_PLAN_STARTER`, `MERCADO_PAGO_PLAN_PROFESSIONAL`, `MERCADO_PAGO_PLAN_ENTERPRISE`: IDs de planos preapproval, se usar planos gerenciados no Mercado Pago.
+- `MERCADO_PAGO_PLAN_STARTER`, `MERCADO_PAGO_PLAN_PROFESSIONAL`, `MERCADO_PAGO_PLAN_ENTERPRISE`: campos legados; no modelo atual de Checkout Pro mensal manual devem ficar vazios.
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PROFESSIONAL`, `STRIPE_PRICE_ENTERPRISE`: opcionais se Stripe for mantido.
 
 ## Ordem de deploy
@@ -79,11 +79,12 @@
 
 - Criar comprador e vendedor de teste no painel Mercado Pago.
 - Usar `MERCADO_PAGO_ACCESS_TOKEN` sandbox.
-- Configurar webhook com eventos de `payment` e `preapproval`.
+- Configurar webhook com eventos de `payment`. `preapproval` permanece apenas para compatibilidade de eventos legados.
 - Confirmar headers `x-signature` e `x-request-id`.
 - Enviar evento valido e confirmar `PaymentEvent.processedAt`.
 - Concluir pagamento aprovado e confirmar `TenantSubscription.status=ACTIVE`.
-- Simular pagamento rejeitado/cancelado e confirmar `TenantSubscription.status=BLOCKED` ou `CANCELED`.
+- Simular pagamento rejeitado e confirmar que o evento foi registrado sem ativar nem bloquear uma assinatura ainda válida.
+- Simular reembolso/chargeback e confirmar bloqueio operacional para evitar uso após estorno.
 - Enviar assinatura invalida e confirmar retorno `401` sem alterar assinatura.
 
 ## Smoke test pos deploy

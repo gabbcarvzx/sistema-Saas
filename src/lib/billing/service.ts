@@ -414,6 +414,19 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
   }
 
   const processedAt = new Date();
+  const existingEvent = await prisma.paymentEvent.findUnique({
+    where: {
+      provider_providerEventId: {
+        provider: event.provider,
+        providerEventId: event.providerEventId,
+      },
+    },
+    select: {
+      processedAt: true,
+    },
+  });
+  const eventAlreadyApplied = Boolean(existingEvent?.processedAt);
+  const existingProcessedAt = existingEvent?.processedAt ?? null;
 
   await prisma.paymentEvent.upsert({
     where: {
@@ -428,13 +441,13 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       providerEventId: event.providerEventId,
       eventType: event.eventType,
       payload: event.payload as Prisma.InputJsonValue,
-      processedAt,
+      processedAt: existingProcessedAt,
     },
     update: {
       tenantId: tenant.id,
       eventType: event.eventType,
       payload: event.payload as Prisma.InputJsonValue,
-      processedAt,
+      processedAt: existingProcessedAt,
     },
   });
 
@@ -443,6 +456,21 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       tenantId: tenant.id,
       tenantSlug: tenant.slug,
       providerEventId: event.providerEventId,
+    });
+
+    return {
+      tenantId: tenant.id,
+      subscriptionUpdated: false,
+    };
+  }
+
+  if (event.subscriptionStatus === "ACTIVE" && eventAlreadyApplied) {
+    logger.info("billing.webhook.duplicate_active_ignored", {
+      tenantId: tenant.id,
+      tenantSlug: tenant.slug,
+      provider: event.provider,
+      providerEventId: event.providerEventId,
+      eventType: event.eventType,
     });
 
     return {
@@ -490,32 +518,45 @@ export async function processBillingWebhook(event: ParsedWebhookEvent) {
       })
     : event.currentPeriodEnd;
 
-  await prisma.tenantSubscription.upsert({
-    where: { tenantId: tenant.id },
-    create: {
-      tenantId: tenant.id,
-      planId,
-      status: event.subscriptionStatus,
-      provider: event.provider,
-      providerCustomerId: event.providerCustomerId,
-      providerSubscriptionId: event.providerSubscriptionId,
-      currentPeriodStart: isActive ? processedAt : undefined,
-      currentPeriodEnd,
-      cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
-      blockedAt: isBlocked ? processedAt : null,
-    },
-    update: {
-      ...(plan ? { planId: plan.id } : {}),
-      status: event.subscriptionStatus,
-      provider: event.provider,
-      providerCustomerId: event.providerCustomerId,
-      providerSubscriptionId: event.providerSubscriptionId,
-      currentPeriodStart: isActive ? processedAt : undefined,
-      currentPeriodEnd,
-      cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
-      blockedAt: isBlocked ? processedAt : null,
-    },
-  });
+  await prisma.$transaction([
+    prisma.tenantSubscription.upsert({
+      where: { tenantId: tenant.id },
+      create: {
+        tenantId: tenant.id,
+        planId,
+        status: event.subscriptionStatus,
+        provider: event.provider,
+        providerCustomerId: event.providerCustomerId,
+        providerSubscriptionId: event.providerSubscriptionId,
+        currentPeriodStart: isActive ? processedAt : undefined,
+        currentPeriodEnd,
+        cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
+        blockedAt: isBlocked ? processedAt : null,
+      },
+      update: {
+        ...(plan ? { planId: plan.id } : {}),
+        status: event.subscriptionStatus,
+        provider: event.provider,
+        providerCustomerId: event.providerCustomerId,
+        providerSubscriptionId: event.providerSubscriptionId,
+        currentPeriodStart: isActive ? processedAt : undefined,
+        currentPeriodEnd,
+        cancelAtPeriodEnd: event.subscriptionStatus === "CANCELED",
+        blockedAt: isBlocked ? processedAt : null,
+      },
+    }),
+    prisma.paymentEvent.update({
+      where: {
+        provider_providerEventId: {
+          provider: event.provider,
+          providerEventId: event.providerEventId,
+        },
+      },
+      data: {
+        processedAt,
+      },
+    }),
+  ]);
 
   logger.info("billing.subscription.updated", {
     tenantId: tenant.id,

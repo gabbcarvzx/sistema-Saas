@@ -12,9 +12,15 @@ type LogValue =
 
 type LogContext = Record<string, LogValue | undefined>;
 
-function normalizeValue(value: LogValue | undefined): unknown {
+const SENSITIVE_LOG_KEY = /authorization|cookie|jwt|password|secret|token/i;
+
+function normalizeValue(value: LogValue | undefined, key?: string): unknown {
   if (value === undefined) {
     return undefined;
+  }
+
+  if (key && SENSITIVE_LOG_KEY.test(key)) {
+    return "[redacted]";
   }
 
   if (value instanceof Date) {
@@ -36,7 +42,10 @@ function normalizeValue(value: LogValue | undefined): unknown {
   if (typeof value === "object" && value !== null) {
     return Object.fromEntries(
       Object.entries(value)
-        .map(([key, item]) => [key, normalizeValue(item)])
+        .map(([entryKey, item]) => [
+          entryKey,
+          normalizeValue(item, entryKey),
+        ])
         .filter(([, item]) => item !== undefined),
     );
   }

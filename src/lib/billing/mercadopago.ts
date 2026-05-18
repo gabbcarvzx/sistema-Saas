@@ -658,16 +658,7 @@ function mapPaymentStatus(status: string | undefined) {
     return "ACTIVE" as const;
   }
 
-  if (status === "cancelled" || status === "canceled") {
-    return "CANCELED" as const;
-  }
-
-  if (
-    status === "rejected" ||
-    status === "expired" ||
-    status === "refunded" ||
-    status === "charged_back"
-  ) {
+  if (status === "refunded" || status === "charged_back") {
     return "BLOCKED" as const;
   }
 
@@ -716,6 +707,10 @@ function metadataSubscriptionId(metadata: JsonObject) {
   );
 }
 
+function providerResourceEventId(resourceType: string, value: unknown, fallback: string) {
+  return `${resourceType}:${normalizeDataId(stringValue(value) ?? fallback)}`;
+}
+
 export async function parseMercadoPagoWebhook(
   rawBody: string,
   request: Request,
@@ -742,7 +737,11 @@ export async function parseMercadoPagoWebhook(
 
     return {
       provider: "MERCADO_PAGO",
-      providerEventId,
+      providerEventId: providerResourceEventId(
+        "preapproval",
+        preApproval.id,
+        dataId,
+      ),
       eventType: topic || "preapproval",
       plan: parsePaidPlan(reference.plan),
       tenantId: reference.tenant,
@@ -769,19 +768,20 @@ export async function parseMercadoPagoWebhook(
     const periodBase = payment.date_approved
       ? new Date(payment.date_approved)
       : new Date();
+    const subscriptionStatus = mapPaymentStatus(payment.status);
 
     return {
       provider: "MERCADO_PAGO",
-      providerEventId,
+      providerEventId: providerResourceEventId("payment", payment.id, dataId),
       eventType: topic || "payment",
       plan: parsePaidPlan(stringValue(metadata.plan) ?? reference.plan),
       tenantId: stringValue(metadata.tenantId) ?? reference.tenant,
       tenantSlug: stringValue(metadata.tenantSlug) ?? reference.slug,
       providerCustomerId: payment.payer?.id,
       providerSubscriptionId: metadataSubscriptionId(metadata),
-      subscriptionStatus: mapPaymentStatus(payment.status),
+      subscriptionStatus,
       currentPeriodEnd:
-        payment.status === "approved" ? addDays(periodBase, 30) : undefined,
+        subscriptionStatus === "ACTIVE" ? addDays(periodBase, 30) : undefined,
       payload: { notification: payload, resource: payment },
     };
   }

@@ -25,6 +25,7 @@ export type TenantAccessResult = {
     | "PLAN_ACTIVE"
     | "TENANT_SUSPENDED"
     | "SUBSCRIPTION_MISSING"
+    | "TRIAL_EXPIRED"
     | "SUBSCRIPTION_EXPIRED"
     | "SUBSCRIPTION_BLOCKED"
     | "SUBSCRIPTION_CANCELED";
@@ -67,6 +68,13 @@ export function evaluateTenantAccess(
   }
 
   if (tenant.subscription.status === "TRIAL") {
+    if (
+      !tenant.subscription.trialEndsAt ||
+      tenant.subscription.trialEndsAt.getTime() < now.getTime()
+    ) {
+      return { ...base, allowed: false, reason: "TRIAL_EXPIRED" };
+    }
+
     return { ...base, allowed: true, reason: "TRIAL_ACTIVE" };
   }
 

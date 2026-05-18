@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   preApprovalGet: vi.fn(),
   getTenantIdentityFromRequest: vi.fn(),
   prisma: {
+    $transaction: vi.fn(),
     subscriptionPlan: {
       findUnique: vi.fn(),
     },
@@ -22,7 +23,9 @@ const mocks = vi.hoisted(() => ({
       upsert: vi.fn(),
     },
     paymentEvent: {
+      findUnique: vi.fn(),
       upsert: vi.fn(),
+      update: vi.fn(),
     },
   },
   logger: {
@@ -181,6 +184,13 @@ describe("Mercado Pago billing", () => {
     process.env.MERCADO_PAGO_ACCESS_TOKEN = "TEST-ACCESS-TOKEN";
     process.env.MERCADO_PAGO_WEBHOOK_SECRET = "mp-webhook-secret";
     process.env.MERCADO_PAGO_WEBHOOK_TOLERANCE_MS = "600000";
+    mocks.prisma.$transaction.mockImplementation(async (operations) =>
+      Promise.all(operations),
+    );
+    mocks.prisma.paymentEvent.findUnique.mockResolvedValue(null);
+    mocks.prisma.paymentEvent.update.mockResolvedValue({
+      id: "payment-event",
+    });
   });
 
   afterEach(() => {
@@ -495,6 +505,17 @@ describe("Mercado Pago billing", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.paymentGet).toHaveBeenCalledWith({ id: "123456" });
+    expect(mocks.prisma.paymentEvent.findUnique).toHaveBeenCalledWith({
+      where: {
+        provider_providerEventId: {
+          provider: "MERCADO_PAGO",
+          providerEventId: "payment:123456",
+        },
+      },
+      select: {
+        processedAt: true,
+      },
+    });
     expect(mocks.prisma.tenantSubscription.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { tenantId: "tenant-1" },
@@ -508,6 +529,19 @@ describe("Mercado Pago billing", () => {
           blockedAt: null,
           cancelAtPeriodEnd: false,
         }),
+      }),
+    );
+    expect(mocks.prisma.paymentEvent.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          provider_providerEventId: {
+            provider: "MERCADO_PAGO",
+            providerEventId: "payment:123456",
+          },
+        },
+        data: {
+          processedAt: expect.any(Date),
+        },
       }),
     );
   });
@@ -569,7 +603,51 @@ describe("Mercado Pago billing", () => {
     );
   });
 
-  it("webhook de pagamento rejeitado nao ativa a TenantSubscription", async () => {
+  it("webhook de pagamento aprovado duplicado nao soma mais 30 dias", async () => {
+    const { POST } = await import("../src/app/api/webhooks/mercadopago/route");
+
+    const rawBody = JSON.stringify({
+      id: "event-payment-duplicate",
+      type: "payment",
+      action: "payment.updated",
+      data: { id: "123456" },
+    });
+
+    mocks.paymentGet.mockResolvedValue({
+      id: 123456,
+      status: "approved",
+      date_approved: "2026-05-15T12:00:00.000Z",
+      external_reference: "tenant:tenant-1;slug:tenant-a;plan:PROFESSIONAL",
+      payer: { id: "payer-1" },
+      metadata: {},
+    });
+    mocks.prisma.tenant.findUnique.mockResolvedValue({
+      id: "tenant-1",
+      slug: "tenant-a",
+    });
+    mocks.prisma.subscriptionPlan.findUnique.mockResolvedValue({
+      id: "plan-professional",
+    });
+    mocks.prisma.paymentEvent.findUnique.mockResolvedValue({
+      processedAt: new Date("2026-05-15T12:01:00.000Z"),
+    });
+    mocks.prisma.paymentEvent.upsert.mockResolvedValue({
+      id: "payment-event-duplicate",
+    });
+
+    const response = await POST(
+      signedMercadoPagoRequest(rawBody, "123456"),
+      undefined,
+    );
+    const body = (await response.json()) as { processed: boolean };
+
+    expect(response.status).toBe(200);
+    expect(body.processed).toBe(false);
+    expect(mocks.prisma.tenantSubscription.upsert).not.toHaveBeenCalled();
+    expect(mocks.prisma.paymentEvent.update).not.toHaveBeenCalled();
+  });
+
+  it("webhook de pagamento rejeitado registra evento sem alterar assinatura", async () => {
     const { POST } = await import("../src/app/api/webhooks/mercadopago/route");
 
     const rawBody = JSON.stringify({
@@ -597,14 +675,6 @@ describe("Mercado Pago billing", () => {
     mocks.prisma.paymentEvent.upsert.mockResolvedValue({
       id: "payment-event-2",
     });
-    mocks.prisma.tenantSubscription.findUnique.mockResolvedValue({
-      tenantId: "tenant-1",
-      planId: "plan-trial",
-    });
-    mocks.prisma.tenantSubscription.upsert.mockResolvedValue({
-      id: "subscription-1",
-      status: "BLOCKED",
-    });
 
     const response = await POST(
       signedMercadoPagoRequest(rawBody, "654321"),
@@ -612,20 +682,17 @@ describe("Mercado Pago billing", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.prisma.tenantSubscription.upsert).toHaveBeenCalledWith(
+    expect(mocks.prisma.paymentEvent.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { tenantId: "tenant-1" },
-        update: expect.objectContaining({
-          status: "BLOCKED",
-          provider: "MERCADO_PAGO",
-          currentPeriodEnd: undefined,
-          blockedAt: expect.any(Date),
+        create: expect.objectContaining({
+          providerEventId: "payment:654321",
+          processedAt: null,
         }),
       }),
     );
-    expect(
-      mocks.prisma.tenantSubscription.upsert.mock.calls.at(-1)?.[0].update.status,
-    ).not.toBe("ACTIVE");
+    expect(mocks.prisma.tenantSubscription.findUnique).not.toHaveBeenCalled();
+    expect(mocks.prisma.tenantSubscription.upsert).not.toHaveBeenCalled();
+    expect(mocks.prisma.paymentEvent.update).not.toHaveBeenCalled();
   });
 
   it("webhook legado de preapproval autorizada ainda ativa a TenantSubscription", async () => {

@@ -28,7 +28,7 @@ describe("billing renewals", () => {
     delete process.env.CRON_SECRET;
   });
 
-  it("bloqueia assinaturas ACTIVE com currentPeriodEnd vencido", async () => {
+  it("bloqueia assinaturas ACTIVE ou TRIAL vencidas", async () => {
     const now = new Date("2026-05-16T12:00:00.000Z");
     mocks.prisma.tenantSubscription.updateMany.mockResolvedValue({ count: 2 });
 
@@ -44,10 +44,20 @@ describe("billing renewals", () => {
     });
     expect(mocks.prisma.tenantSubscription.updateMany).toHaveBeenCalledWith({
       where: {
-        status: "ACTIVE",
-        currentPeriodEnd: {
-          lt: now,
-        },
+        OR: [
+          {
+            status: "ACTIVE",
+            currentPeriodEnd: {
+              lt: now,
+            },
+          },
+          {
+            status: "TRIAL",
+            trialEndsAt: {
+              lt: now,
+            },
+          },
+        ],
       },
       data: {
         status: "BLOCKED",

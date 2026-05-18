@@ -59,14 +59,14 @@ const plans = [
 
 const examples = [
   {
-    quote:
-      "Em vez de procurar em planilhas, vejo rapidamente o que precisa comprar.",
-    author: "Exemplo de uso: loja de peças",
+    title: "Loja de peças",
+    text:
+      "O dono acompanha itens zerados e baixo estoque antes de fazer a próxima compra.",
   },
   {
-    quote:
-      "O alerta de estoque mínimo ajuda a evitar falta dos produtos que mais saem.",
-    author: "Exemplo de uso: mercadinho",
+    title: "Mercadinho",
+    text:
+      "A equipe separa produtos por unidade e identifica reposição sem depender de planilhas soltas.",
   },
 ];
 
@@ -311,16 +311,18 @@ export default function MarketingHomePage() {
         <div className="mx-auto grid max-w-7xl gap-5 px-4 sm:px-6 lg:grid-cols-2 lg:px-8">
           {examples.map((example) => (
             <article
-              key={example.author}
+              key={example.title}
               className="rounded-lg border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/50"
             >
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Depoimento fictício - exemplo
+                Cenário de uso
               </p>
-              <p className="mt-4 text-lg font-semibold leading-8">
-                "{example.quote}"
+              <h3 className="mt-4 text-lg font-semibold leading-8">
+                {example.title}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                {example.text}
               </p>
-              <p className="mt-4 text-sm text-slate-600">{example.author}</p>
             </article>
           ))}
         </div>

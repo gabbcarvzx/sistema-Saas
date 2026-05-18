@@ -35,7 +35,7 @@ describe("evaluateTenantAccess", () => {
     expect(access.reason).toBe("TRIAL_ACTIVE");
   });
 
-  it("allows trial status even after trial end until billing marks it blocked", () => {
+  it("blocks expired trial even before cron marks it blocked", () => {
     const access = evaluateTenantAccess(
       tenant({
         id: "sub-1",
@@ -47,8 +47,8 @@ describe("evaluateTenantAccess", () => {
       now,
     );
 
-    expect(access.allowed).toBe(true);
-    expect(access.reason).toBe("TRIAL_ACTIVE");
+    expect(access.allowed).toBe(false);
+    expect(access.reason).toBe("TRIAL_EXPIRED");
   });
 
   it("allows active paid plan without period end for manual billing", () => {

@@ -4,10 +4,20 @@ import { logger } from "@/lib/logger";
 export async function blockExpiredTenantSubscriptions(now = new Date()) {
   const result = await prisma.tenantSubscription.updateMany({
     where: {
-      status: "ACTIVE",
-      currentPeriodEnd: {
-        lt: now,
-      },
+      OR: [
+        {
+          status: "ACTIVE",
+          currentPeriodEnd: {
+            lt: now,
+          },
+        },
+        {
+          status: "TRIAL",
+          trialEndsAt: {
+            lt: now,
+          },
+        },
+      ],
     },
     data: {
       status: "BLOCKED",

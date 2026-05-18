@@ -17,6 +17,8 @@ type BillingBlockedPageProps = {
 
 const reasonLabels: Record<string, string> = {
   TRIAL_ACTIVE: "Seu periodo de teste esta ativo.",
+  TRIAL_EXPIRED:
+    "Seu teste gratuito terminou. Escolha um plano mensal para liberar novamente o painel operacional.",
   PLAN_ACTIVE: "Sua assinatura esta ativa.",
   SUBSCRIPTION_EXPIRED:
     "O periodo pago terminou. Renove para liberar novamente o painel operacional.",

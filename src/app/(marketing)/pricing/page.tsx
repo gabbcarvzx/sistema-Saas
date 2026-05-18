@@ -152,7 +152,7 @@ export default function PricingPage() {
             <p className="mt-2 text-sm leading-6 text-slate-600">
               O checkout usa Mercado Pago. Após a aprovação, o acesso fica
               liberado por 30 dias e pode ser renovado pela página de
-              assinatura.
+              assinatura. Não há cobrança recorrente automática nesta versão.
             </p>
           </article>
           <article className="rounded-lg border border-slate-200 bg-white p-5">
