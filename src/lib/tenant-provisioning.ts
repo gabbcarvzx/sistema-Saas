@@ -1,7 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_TENANT_SLUG } from "@/lib/tenant-resolver";
 
-export const DEFAULT_TRIAL_DAYS = Number(process.env.DEFAULT_TRIAL_DAYS ?? 14);
+const FALLBACK_TRIAL_DAYS = 14;
+
+function parseDefaultTrialDays() {
+  const parsed = Number(process.env.DEFAULT_TRIAL_DAYS ?? FALLBACK_TRIAL_DAYS);
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : FALLBACK_TRIAL_DAYS;
+}
+
+export const DEFAULT_TRIAL_DAYS = parseDefaultTrialDays();
 
 export const INITIAL_STORES = [
   { name: "Loja Matriz", location: "Centro" },
@@ -20,6 +28,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS = [
     description: "Periodo de avaliacao",
     priceCents: 0,
     stripePriceId: process.env.STRIPE_PRICE_TRIAL,
+    mercadoPagoPlanId: process.env.MERCADO_PAGO_PLAN_TRIAL,
     trialDays: DEFAULT_TRIAL_DAYS,
     productLimit: 100,
     storeLimit: 3,
@@ -30,8 +39,9 @@ export const DEFAULT_SUBSCRIPTION_PLANS = [
     code: "STARTER" as const,
     name: "Starter",
     description: "Plano inicial para oficinas pequenas",
-    priceCents: 4900,
+    priceCents: 3900,
     stripePriceId: process.env.STRIPE_PRICE_STARTER,
+    mercadoPagoPlanId: process.env.MERCADO_PAGO_PLAN_STARTER,
     trialDays: DEFAULT_TRIAL_DAYS,
     productLimit: 500,
     storeLimit: 5,
@@ -40,10 +50,11 @@ export const DEFAULT_SUBSCRIPTION_PLANS = [
     id: "00000000-0000-4000-8000-000000000103",
     slug: "professional",
     code: "PROFESSIONAL" as const,
-    name: "Professional",
-    description: "Plano profissional para operacao em crescimento",
-    priceCents: 9900,
+    name: "Pro",
+    description: "Plano mais escolhido para negocios em crescimento",
+    priceCents: 7900,
     stripePriceId: process.env.STRIPE_PRICE_PROFESSIONAL,
+    mercadoPagoPlanId: process.env.MERCADO_PAGO_PLAN_PROFESSIONAL,
     trialDays: DEFAULT_TRIAL_DAYS,
     productLimit: 5000,
     storeLimit: 20,
@@ -52,10 +63,11 @@ export const DEFAULT_SUBSCRIPTION_PLANS = [
     id: "00000000-0000-4000-8000-000000000104",
     slug: "enterprise",
     code: "ENTERPRISE" as const,
-    name: "Enterprise",
-    description: "Plano corporativo com limites customizados",
-    priceCents: 0,
+    name: "Business",
+    description: "Plano para operacao multi-unidade",
+    priceCents: 14900,
     stripePriceId: process.env.STRIPE_PRICE_ENTERPRISE,
+    mercadoPagoPlanId: process.env.MERCADO_PAGO_PLAN_ENTERPRISE,
     trialDays: DEFAULT_TRIAL_DAYS,
     productLimit: null,
     storeLimit: null,
@@ -65,6 +77,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS = [
 type CreateInitialTenantInput = {
   name: string;
   slug: string;
+  businessType?: "AUTO_REPAIR" | "RETAIL" | "RESTAURANT" | "HEALTHCARE" | "EDUCATION" | "SERVICES" | "GENERIC";
   trialDays?: number;
 };
 
@@ -83,6 +96,7 @@ export async function ensureSubscriptionPlans() {
         description: plan.description,
         priceCents: plan.priceCents,
         stripePriceId: plan.stripePriceId,
+        mercadoPagoPlanId: plan.mercadoPagoPlanId,
         trialDays: plan.trialDays,
         productLimit: plan.productLimit,
         storeLimit: plan.storeLimit,
@@ -100,6 +114,7 @@ export async function ensureSubscriptionPlans() {
 export async function createInitialTenant({
   name,
   slug,
+  businessType = "AUTO_REPAIR",
   trialDays = DEFAULT_TRIAL_DAYS,
 }: CreateInitialTenantInput) {
   await ensureSubscriptionPlans();
@@ -114,7 +129,8 @@ export async function createInitialTenant({
   }
 
   const now = new Date();
-  const trialEndsAt = addDays(now, trialDays);
+  const trialStartsAt = now;
+  const trialEndsAt = addDays(trialStartsAt, trialDays);
 
   return prisma.$transaction(async (tx) => {
     const plan = await tx.subscriptionPlan.findUniqueOrThrow({
@@ -126,12 +142,14 @@ export async function createInitialTenant({
       data: {
         name,
         slug,
+        businessType,
         subscription: {
           create: {
             planId: plan.id,
             status: "TRIAL",
+            trialStartsAt,
             trialEndsAt,
-            currentPeriodStart: now,
+            currentPeriodStart: trialStartsAt,
             currentPeriodEnd: trialEndsAt,
           },
         },

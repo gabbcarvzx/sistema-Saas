@@ -29,66 +29,81 @@ export async function signupTenant(input: SignupInput) {
     });
   }
 
-  const plan = await prisma.subscriptionPlan.findUnique({
-    where: { slug: DEFAULT_PLAN_SLUG },
-  });
-
-  if (!plan) {
-    throw new ConfigurationError("Plano trial nao encontrado.");
-  }
-
   const now = new Date();
-  const trialDays = plan.trialDays || DEFAULT_TRIAL_DAYS;
-  const trialEndsAt = addDays(now, trialDays);
+  const trialStartsAt = now;
+  const trialEndsAt = addDays(trialStartsAt, DEFAULT_TRIAL_DAYS);
   const passwordHash = await hashPassword(input.password);
 
   return prisma.$transaction(async (tx) => {
+    const plan = await tx.subscriptionPlan.findUnique({
+      where: { slug: DEFAULT_PLAN_SLUG },
+      select: { id: true },
+    });
+
+    if (!plan) {
+      throw new ConfigurationError("Plano trial nao encontrado.");
+    }
+
     const tenant = await tx.tenant.create({
       data: {
         name: input.companyName,
         slug: input.tenantSlug,
+        businessType: "AUTO_REPAIR",
         logoUrl: input.logoUrl,
         primaryColor: input.primaryColor,
         supportEmail: input.supportEmail ?? input.adminEmail,
         settings: {},
-        users: {
-          create: {
-            name: input.adminName,
-            email: input.adminEmail,
-            password: passwordHash,
-            role: "ADMIN",
-          },
-        },
-        stores: {
-          create: INITIAL_STORES,
-        },
-        subscription: {
-          create: {
-            planId: plan.id,
-            status: "TRIAL",
-            trialEndsAt,
-            currentPeriodStart: now,
-            currentPeriodEnd: trialEndsAt,
-          },
-        },
       },
-      include: {
-        users: {
-          select: {
-            id: true,
-            email: true,
-            role: true,
-          },
-        },
-        subscription: true,
+      select: {
+        id: true,
+        slug: true,
+      },
+    });
+
+    const adminUser = await tx.user.create({
+      data: {
+        tenantId: tenant.id,
+        name: input.adminName,
+        email: input.adminEmail,
+        password: passwordHash,
+        role: "ADMIN",
+      },
+      select: { id: true },
+    });
+
+    await tx.store.createMany({
+      data: INITIAL_STORES.map((store) => ({
+        ...store,
+        tenantId: tenant.id,
+      })),
+    });
+
+    const subscription = await tx.tenantSubscription.create({
+      data: {
+        tenantId: tenant.id,
+        planId: plan.id,
+        status: "TRIAL",
+        trialStartsAt,
+        trialEndsAt,
+        currentPeriodStart: trialStartsAt,
+        currentPeriodEnd: trialEndsAt,
+      },
+      select: {
+        id: true,
+        status: true,
+        trialStartsAt: true,
+        trialEndsAt: true,
       },
     });
 
     return {
       tenantId: tenant.id,
       tenantSlug: tenant.slug,
-      adminUserId: tenant.users[0]?.id,
-      trialEndsAt: tenant.subscription?.trialEndsAt ?? trialEndsAt,
+      adminUserId: adminUser.id,
+      subscriptionId: subscription.id,
+      subscriptionStatus: subscription.status,
+      trialStartsAt: subscription.trialStartsAt ?? trialStartsAt,
+      trialEndsAt: subscription.trialEndsAt ?? trialEndsAt,
     };
   });
 }

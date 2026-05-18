@@ -1,38 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { PlanExpiredError } from "@/lib/http-errors";
-import { logger } from "@/lib/logger";
 import { ensureDefaultTenant } from "@/lib/tenant-provisioning";
 import { DEFAULT_TENANT_SLUG } from "@/lib/tenant-resolver";
 import {
   evaluateTenantAccess,
   type TenantAccessResult,
 } from "@/lib/billing/policy";
-
-async function markSubscriptionExpired(access: TenantAccessResult) {
-  if (access.allowed || access.subscriptionStatus === "MISSING") {
-    return;
-  }
-
-  if (
-    access.subscriptionStatus === "BLOCKED"
-  ) {
-    return;
-  }
-
-  await prisma.tenantSubscription.update({
-    where: { tenantId: access.tenantId },
-    data: {
-      status: "BLOCKED",
-      blockedAt: new Date(),
-    },
-  });
-
-  logger.warn("billing.subscription.blocked", {
-    tenantId: access.tenantId,
-    tenantSlug: access.tenantSlug,
-    reason: access.reason,
-  });
-}
 
 export async function getTenantAccessBySlug(slug: string) {
   const tenant =
@@ -45,7 +18,7 @@ export async function getTenantAccessBySlug(slug: string) {
     return null;
   }
 
-  const access = evaluateTenantAccess({
+  return evaluateTenantAccess({
     id: tenant.id,
     slug: tenant.slug,
     name: tenant.name,
@@ -57,18 +30,14 @@ export async function getTenantAccessBySlug(slug: string) {
           trialEndsAt: tenant.subscription.trialEndsAt,
           currentPeriodEnd: tenant.subscription.currentPeriodEnd,
           blockedAt: tenant.subscription.blockedAt,
-        }
+      }
       : null,
   });
-
-  await markSubscriptionExpired(access);
-
-  return access;
 }
 
 export function assertTenantAccess(access: TenantAccessResult) {
   if (!access.allowed) {
-    throw new PlanExpiredError("Plano expirado ou bloqueado.", {
+    throw new PlanExpiredError("Plano bloqueado ou cancelado.", {
       reason: access.reason,
       tenantSlug: access.tenantSlug,
       subscriptionStatus: access.subscriptionStatus,

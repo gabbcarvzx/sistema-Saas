@@ -11,28 +11,30 @@ model Tenant {
   name          String
   slug          String              @unique
   status        TenantStatus        @default(ACTIVE)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @default(now()) @updatedAt
   logoUrl       String?
   primaryColor  String              @default("#22d3ee")
   supportEmail  String?
   settings      Json                @default("{}")
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @default(now()) @updatedAt
+  businessType  BusinessType        @default(AUTO_REPAIR)
   paymentEvents PaymentEvent[]
   stores        Store[]
   subscription  TenantSubscription?
   users         User[]
 
   @@index([status])
+  @@index([businessType])
 }
 
 model User {
+  tenantId  String
   id        String   @id @default(uuid())
   name      String
   email     String
   password  String
-  role      UserRole @default(MEMBER)
   createdAt DateTime @default(now())
-  tenantId  String
+  role      UserRole @default(MEMBER)
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, email])
@@ -40,20 +42,22 @@ model User {
 }
 
 model Store {
+  tenantId  String
   id        String    @id @default(uuid())
   name      String
   location  String?
   createdAt DateTime  @default(now())
-  tenantId  String
   products  Product[]
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, id])
   @@index([tenantId])
+  @@index([tenantId, name])
 }
 
 model Product {
   id        String   @id @default(uuid())
+  tenantId  String
   name      String
   code      String
   price     Float
@@ -63,23 +67,23 @@ model Product {
   storeId   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  tenantId  String
   store     Store    @relation(fields: [tenantId, storeId], references: [tenantId, id], onDelete: Cascade)
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([tenantId, storeId])
+  @@index([tenantId, category])
 }
 
 model TenantSubscription {
   id                     String             @id @default(uuid())
   tenantId               String             @unique
-  planId                 String
   status                 SubscriptionStatus @default(TRIAL)
   provider               PaymentProvider?
   providerCustomerId     String?
   providerSubscriptionId String?
+  trialStartsAt          DateTime?
   trialEndsAt            DateTime?
   currentPeriodStart     DateTime?
   currentPeriodEnd       DateTime?
@@ -87,10 +91,13 @@ model TenantSubscription {
   blockedAt              DateTime?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @default(now()) @updatedAt
+  planId                 String
   plan                   SubscriptionPlan   @relation(fields: [planId], references: [id])
   tenant                 Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([planId])
+  @@index([tenantId, status])
+  @@index([status, trialStartsAt])
   @@index([status, trialEndsAt])
   @@index([status, currentPeriodEnd])
   @@index([provider, providerCustomerId])
@@ -98,44 +105,58 @@ model TenantSubscription {
 }
 
 model SubscriptionPlan {
-  id            String               @id @default(uuid())
-  slug          String               @unique
-  code          PlanCode             @unique
-  name          String
-  description   String?
-  priceCents    Int                  @default(0)
-  currency      String               @default("BRL")
-  stripePriceId String?              @unique
-  trialDays     Int                  @default(14)
-  productLimit  Int?
-  storeLimit    Int?
-  isActive      Boolean              @default(true)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @default(now()) @updatedAt
-  subscriptions TenantSubscription[]
+  id                String               @id @default(uuid())
+  slug              String               @unique
+  name              String
+  description       String?
+  priceCents        Int                  @default(0)
+  currency          String               @default("BRL")
+  trialDays         Int                  @default(14)
+  productLimit      Int?
+  storeLimit        Int?
+  isActive          Boolean              @default(true)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @default(now()) @updatedAt
+  code              PlanCode             @unique
+  stripePriceId     String?
+  mercadoPagoPlanId String?
+  subscriptions     TenantSubscription[]
 
   @@index([isActive])
+  @@index([stripePriceId])
+  @@index([mercadoPagoPlanId])
 }
 
 model PaymentEvent {
   id              String          @id @default(uuid())
-  tenantId        String?
+  tenantId        String
   provider        PaymentProvider
   providerEventId String
   eventType       String
   payload         Json
   processedAt     DateTime?
   createdAt       DateTime        @default(now())
-  tenant          Tenant?         @relation(fields: [tenantId], references: [id])
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerEventId])
   @@index([tenantId])
+  @@index([tenantId, provider, eventType])
   @@index([provider, eventType])
 }
 
 enum TenantStatus {
   ACTIVE
   SUSPENDED
+}
+
+enum BusinessType {
+  AUTO_REPAIR
+  RETAIL
+  RESTAURANT
+  HEALTHCARE
+  EDUCATION
+  SERVICES
+  GENERIC
 }
 
 enum UserRole {

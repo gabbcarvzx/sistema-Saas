@@ -23,6 +23,10 @@ export const POST = withApiHandler(async (request) => {
     tenantId: result.tenantId,
     tenantSlug: result.tenantSlug,
     adminUserId: result.adminUserId,
+    subscriptionId: result.subscriptionId,
+    subscriptionStatus: result.subscriptionStatus,
+    trialStartsAt: result.trialStartsAt,
+    trialEndsAt: result.trialEndsAt,
   });
 
   const loginUrl = new URL("/login", request.url);

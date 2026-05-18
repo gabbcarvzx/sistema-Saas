@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# StockPro / Sistema SaaS
 
-## Getting Started
+SaaS multi-tenant para controle de estoque, lojas, produtos em falta e assinatura mensal manual via Mercado Pago Checkout Pro.
 
-First, run the development server:
+## Stack
+
+- Next.js 14 App Router + TypeScript
+- Prisma 7 + PostgreSQL/Supabase
+- JWT em cookie HTTP-only
+- Multi-tenant por `tenantId`
+- Billing mensal manual com Mercado Pago Checkout Pro
+- Cron diário para bloquear trials e assinaturas vencidas
+- Vitest + Playwright
+
+## Setup local
+
+1. Copie `.env.example` para `.env`.
+2. Configure `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `INTERNAL_ACCESS_SECRET` e `CRON_SECRET`.
+3. Rode:
 
 ```bash
+npm ci
+npm run db:generate
+npm run db:migrate
+npm run db:seed
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abra `http://127.0.0.1:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Validação antes de deploy
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run typecheck
+npm run test
+npx playwright test
+npm run build
+```
 
-## Learn More
+## Produção
 
-To learn more about Next.js, take a look at the following resources:
+Na Vercel, configure as variáveis do `.env.example`, rode `npm run db:migrate` contra o banco de produção e confirme o cron em `vercel.json`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Para Mercado Pago, use Checkout Pro com evento `payment` apontando para:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```text
+https://app.seudominio.com/api/webhooks/mercadopago
+```
 
-## Deploy on Vercel
+O webhook valida `x-signature` e `x-request-id`, registra o evento e só renova a assinatura quando o pagamento retorna aprovado. Pagamento rejeitado não ativa nem bloqueia uma assinatura válida; reembolso/chargeback bloqueia o acesso operacional.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Checklist detalhado: `docs/production-checklist.md`.

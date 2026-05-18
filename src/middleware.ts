@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAuthTokenEdge } from "@/lib/auth/edge-jwt";
-import { resolveTenantSlug } from "@/lib/tenant-resolver";
+import { DEFAULT_TENANT_SLUG, resolveTenantSlug } from "@/lib/tenant-resolver";
 
 type TenantAccessResponse = {
   allowed: boolean;
@@ -10,41 +10,67 @@ type TenantAccessResponse = {
   subscriptionStatus: string;
 };
 
-const PUBLIC_PATHS = [
-  "/billing/blocked",
-  "/api/internal/tenant-access",
-  "/api/billing/webhook",
-  "/api/login",
-  "/api/signup",
-  "/login",
-  "/signup",
-];
+const APP_PATH_PREFIX = "/app";
 
-function isPublicPath(pathname: string) {
-  return PUBLIC_PATHS.some(
-    (publicPath) =>
-      pathname === publicPath || pathname.startsWith(`${publicPath}/`),
+function getInternalAccessSecret() {
+  const secret = process.env.INTERNAL_ACCESS_SECRET;
+
+  return secret && secret.trim().length > 0 ? secret : null;
+}
+
+function isProtectedAppPath(pathname: string) {
+  return (
+    pathname === APP_PATH_PREFIX || pathname.startsWith(`${APP_PATH_PREFIX}/`)
   );
 }
 
-function isApiRequest(pathname: string) {
-  return pathname.startsWith("/api/");
+function isAccountRecoveryPath(pathname: string) {
+  return pathname === "/app/account" || pathname.startsWith("/app/account/");
+}
+
+function isBillingRecoveryPath(pathname: string) {
+  return (
+    pathname === "/app/billing" ||
+    pathname.startsWith("/app/billing/") ||
+    isAccountRecoveryPath(pathname)
+  );
+}
+
+function normalizeSlug(value: string | null | undefined) {
+  const slug = value?.trim().toLowerCase();
+
+  if (!slug) {
+    return null;
+  }
+
+  return slug.replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-");
+}
+
+function resolveTenantForMiddleware(request: NextRequest) {
+  const tenantFromQuery = normalizeSlug(request.nextUrl.searchParams.get("tenant"));
+  const tenantFromCookie = normalizeSlug(request.cookies.get("tenantSlug")?.value);
+
+  if (tenantFromQuery) {
+    return tenantFromQuery;
+  }
+
+  if (tenantFromCookie) {
+    return tenantFromCookie;
+  }
+
+  const resolved = resolveTenantSlug(request.headers, request.nextUrl);
+
+  if (resolved === "sistema-saas-kappa") {
+    return DEFAULT_TENANT_SLUG;
+  }
+
+  return resolved;
 }
 
 function planBlockedResponse(request: NextRequest, access: TenantAccessResponse) {
-  if (isApiRequest(request.nextUrl.pathname)) {
-    return NextResponse.json(
-      {
-        code: "PLAN_EXPIRED",
-        message: "Plano expirado ou bloqueado.",
-        reason: access.reason,
-      },
-      { status: 402 },
-    );
-  }
-
   const blockedUrl = request.nextUrl.clone();
   blockedUrl.pathname = "/billing/blocked";
+  blockedUrl.search = "";
   blockedUrl.searchParams.set("tenant", access.tenantSlug);
   blockedUrl.searchParams.set("reason", access.reason);
 
@@ -52,13 +78,6 @@ function planBlockedResponse(request: NextRequest, access: TenantAccessResponse)
 }
 
 function unauthorizedResponse(request: NextRequest, tenantSlug: string) {
-  if (isApiRequest(request.nextUrl.pathname)) {
-    return NextResponse.json(
-      { code: "UNAUTHORIZED", message: "Sessao invalida ou expirada." },
-      { status: 401 },
-    );
-  }
-
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = "/login";
   loginUrl.search = "";
@@ -70,11 +89,17 @@ function unauthorizedResponse(request: NextRequest, tenantSlug: string) {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (isPublicPath(pathname)) {
+  if (!isProtectedAppPath(pathname)) {
     return NextResponse.next();
   }
 
-  const tenantSlug = resolveTenantSlug(request.headers, request.nextUrl);
+  const tenantSlug = resolveTenantForMiddleware(request);
+  const internalAccessSecret = getInternalAccessSecret();
+
+  if (!internalAccessSecret) {
+    return unauthorizedResponse(request, tenantSlug);
+  }
+
   const checkUrl = request.nextUrl.clone();
   checkUrl.pathname = "/api/internal/tenant-access";
   checkUrl.search = "";
@@ -83,25 +108,24 @@ export async function middleware(request: NextRequest) {
   const checkResponse = await fetch(checkUrl, {
     cache: "no-store",
     headers: {
-      "x-internal-access-secret": process.env.INTERNAL_ACCESS_SECRET ?? "",
+      "x-internal-access-secret": internalAccessSecret,
       "x-tenant-slug": tenantSlug,
     },
   });
 
   if (!checkResponse.ok) {
-    if (isApiRequest(pathname)) {
-      return NextResponse.json(
-        { code: "TENANT_ACCESS_UNAVAILABLE", message: "Tenant indisponivel." },
-        { status: checkResponse.status },
-      );
-    }
+    const blockedUrl = request.nextUrl.clone();
+    blockedUrl.pathname = "/billing/blocked";
+    blockedUrl.search = "";
+    blockedUrl.searchParams.set("tenant", tenantSlug);
+    blockedUrl.searchParams.set("reason", "TENANT_ACCESS_UNAVAILABLE");
 
-    return NextResponse.rewrite(new URL("/billing/blocked", request.url));
+    return NextResponse.redirect(blockedUrl);
   }
 
   const access = (await checkResponse.json()) as TenantAccessResponse;
 
-  if (!access.allowed) {
+  if (!access.allowed && !isBillingRecoveryPath(pathname)) {
     return planBlockedResponse(request, access);
   }
 
@@ -147,5 +171,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+  matcher: ["/app/:path*"],
 };

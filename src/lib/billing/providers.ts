@@ -1,11 +1,14 @@
 import Stripe from "stripe";
 import { z } from "zod";
-import { randomUUID, timingSafeEqual } from "node:crypto";
 import {
   AppError,
   ConfigurationError,
   UnauthorizedError,
 } from "@/lib/http-errors";
+import {
+  createMercadoPagoCheckoutPreference,
+  parseMercadoPagoWebhook,
+} from "@/lib/billing/mercadopago";
 
 export const paymentProviderSchema = z.enum(["STRIPE", "MERCADO_PAGO"]);
 export const paidPlanSchema = z.enum(["STARTER", "PROFESSIONAL", "ENTERPRISE"]);
@@ -18,7 +21,12 @@ export type CheckoutRequest = {
   tenantSlug: string;
   plan: PaidPlanCode;
   provider: PaymentProviderCode;
-  priceId: string;
+  stripePriceId?: string;
+  mercadoPagoPlanId?: string | null;
+  planName: string;
+  priceCents: number;
+  currency: string;
+  payerEmail?: string;
   successUrl: string;
   cancelUrl: string;
 };
@@ -26,12 +34,17 @@ export type CheckoutRequest = {
 export type CheckoutResponse = {
   provider: PaymentProviderCode;
   checkoutUrl: string;
+  redirectUrl?: string;
+  providerPreferenceId?: string;
+  providerSubscriptionId?: string;
+  providerHttpStatus?: number;
 };
 
 export type ParsedWebhookEvent = {
   provider: PaymentProviderCode;
   providerEventId: string;
   eventType: string;
+  plan?: PaidPlanCode;
   tenantId?: string;
   tenantSlug?: string;
   providerCustomerId?: string;
@@ -60,18 +73,33 @@ function getStripe() {
 export async function createCheckoutSession(
   request: CheckoutRequest,
 ): Promise<CheckoutResponse> {
-  if (request.provider !== "STRIPE") {
+  if (request.provider === "MERCADO_PAGO") {
+    return createMercadoPagoCheckoutPreference({
+      tenantId: request.tenantId,
+      tenantSlug: request.tenantSlug,
+      plan: request.plan,
+      planName: request.planName,
+      amountCents: request.priceCents,
+      currency: request.currency,
+      mercadoPagoPlanId: request.mercadoPagoPlanId,
+      payerEmail: request.payerEmail,
+      successUrl: request.successUrl,
+      cancelUrl: request.cancelUrl,
+    });
+  }
+
+  if (!request.stripePriceId) {
     throw new AppError(
-      "BILLING_PROVIDER_NOT_CONNECTED",
-      "Mercado Pago ainda nao esta conectado neste projeto.",
-      501,
-      { provider: request.provider, plan: request.plan },
+      "BILLING_PRICE_NOT_CONFIGURED",
+      "Configure o priceId da Stripe para este plano.",
+      500,
+      { plan: request.plan },
     );
   }
 
   const session = await getStripe().checkout.sessions.create({
     mode: "subscription",
-    line_items: [{ price: request.priceId, quantity: 1 }],
+    line_items: [{ price: request.stripePriceId, quantity: 1 }],
     success_url: request.successUrl,
     cancel_url: request.cancelUrl,
     client_reference_id: request.tenantId,
@@ -147,6 +175,7 @@ function parseStripeEvent(rawBody: string, signature: string | null) {
   );
   const object = event.data.object as Stripe.Subscription | Stripe.Checkout.Session;
   const metadata = object.metadata ?? {};
+  const plan = paidPlanSchema.safeParse(metadata.plan);
   const customer =
     typeof object.customer === "string" ? object.customer : object.customer?.id;
   const subscriptionId =
@@ -174,6 +203,7 @@ function parseStripeEvent(rawBody: string, signature: string | null) {
     provider: "STRIPE" as const,
     providerEventId: event.id,
     eventType: event.type,
+    plan: plan.success ? plan.data : undefined,
     tenantId: metadata.tenantId,
     tenantSlug: metadata.tenantSlug,
     providerCustomerId: customer,
@@ -185,53 +215,14 @@ function parseStripeEvent(rawBody: string, signature: string | null) {
   };
 }
 
-function assertSharedWebhookSecret(request: Request) {
-  const expectedSecret = process.env.BILLING_WEBHOOK_SECRET;
-
-  if (!expectedSecret) {
-    throw new ConfigurationError("Configure BILLING_WEBHOOK_SECRET.");
-  }
-
-  const receivedSecret =
-    request.headers.get("x-billing-webhook-secret") ??
-    request.headers.get("x-webhook-secret");
-
-  if (!receivedSecret) {
-    throw new UnauthorizedError("Webhook sem assinatura.");
-  }
-
-  const expected = Buffer.from(expectedSecret);
-  const received = Buffer.from(receivedSecret);
-
-  if (
-    expected.length !== received.length ||
-    !timingSafeEqual(expected, received)
-  ) {
-    throw new UnauthorizedError("Assinatura do webhook invalida.");
-  }
-}
-
-export function parseProviderWebhook(
+export async function parseProviderWebhook(
   provider: PaymentProviderCode,
   rawBody: string,
   request: Request,
-): ParsedWebhookEvent {
+): Promise<ParsedWebhookEvent> {
   if (provider === "STRIPE") {
     return parseStripeEvent(rawBody, request.headers.get("stripe-signature"));
   }
 
-  assertSharedWebhookSecret(request);
-  const payload = JSON.parse(rawBody) as Record<string, unknown>;
-  const providerEventId =
-    typeof payload.id === "string" ? payload.id : randomUUID();
-
-  return {
-    provider,
-    providerEventId,
-    eventType: typeof payload.type === "string" ? payload.type : "unknown",
-    tenantId: typeof payload.tenantId === "string" ? payload.tenantId : undefined,
-    tenantSlug:
-      typeof payload.tenantSlug === "string" ? payload.tenantSlug : undefined,
-    payload,
-  };
+  return parseMercadoPagoWebhook(rawBody, request);
 }

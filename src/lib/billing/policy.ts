@@ -26,8 +26,9 @@ export type TenantAccessResult = {
     | "TENANT_SUSPENDED"
     | "SUBSCRIPTION_MISSING"
     | "TRIAL_EXPIRED"
-    | "PLAN_EXPIRED"
-    | "SUBSCRIPTION_BLOCKED";
+    | "SUBSCRIPTION_EXPIRED"
+    | "SUBSCRIPTION_BLOCKED"
+    | "SUBSCRIPTION_CANCELED";
   tenantId: string;
   tenantSlug: string;
   tenantName: string;
@@ -35,10 +36,6 @@ export type TenantAccessResult = {
   trialEndsAt: string | null;
   currentPeriodEnd: string | null;
 };
-
-function isPast(date: Date | null, now: Date) {
-  return date !== null && date.getTime() < now.getTime();
-}
 
 export function evaluateTenantAccess(
   tenant: TenantAccessSnapshot,
@@ -62,21 +59,32 @@ export function evaluateTenantAccess(
     return { ...base, allowed: false, reason: "SUBSCRIPTION_MISSING" };
   }
 
-  if (
-    tenant.subscription.blockedAt ||
-    tenant.subscription.status === "BLOCKED" ||
-    tenant.subscription.status === "CANCELED"
-  ) {
+  if (tenant.subscription.status === "BLOCKED") {
     return { ...base, allowed: false, reason: "SUBSCRIPTION_BLOCKED" };
   }
 
-  if (tenant.subscription.status === "TRIAL") {
-    return isPast(tenant.subscription.trialEndsAt, now)
-      ? { ...base, allowed: false, reason: "TRIAL_EXPIRED" }
-      : { ...base, allowed: true, reason: "TRIAL_ACTIVE" };
+  if (tenant.subscription.status === "CANCELED") {
+    return { ...base, allowed: false, reason: "SUBSCRIPTION_CANCELED" };
   }
 
-  return isPast(tenant.subscription.currentPeriodEnd, now)
-    ? { ...base, allowed: false, reason: "PLAN_EXPIRED" }
-    : { ...base, allowed: true, reason: "PLAN_ACTIVE" };
+  if (tenant.subscription.status === "TRIAL") {
+    if (
+      !tenant.subscription.trialEndsAt ||
+      tenant.subscription.trialEndsAt.getTime() < now.getTime()
+    ) {
+      return { ...base, allowed: false, reason: "TRIAL_EXPIRED" };
+    }
+
+    return { ...base, allowed: true, reason: "TRIAL_ACTIVE" };
+  }
+
+  if (
+    tenant.subscription.status === "ACTIVE" &&
+    tenant.subscription.currentPeriodEnd &&
+    tenant.subscription.currentPeriodEnd.getTime() < now.getTime()
+  ) {
+    return { ...base, allowed: false, reason: "SUBSCRIPTION_EXPIRED" };
+  }
+
+  return { ...base, allowed: true, reason: "PLAN_ACTIVE" };
 }

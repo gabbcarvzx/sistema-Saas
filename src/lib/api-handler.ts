@@ -67,7 +67,7 @@ export function withApiHandler<TContext = undefined>(
           code,
           message,
           requestId,
-          ...(error instanceof AppError && error.details
+          ...(status < 500 && error instanceof AppError && error.details
             ? { details: error.details }
             : {}),
         },

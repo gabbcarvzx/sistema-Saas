@@ -1,5 +1,7 @@
 import { ProductsClient } from "@/app/components/products-client";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default function ProductsPage() {
   return <ProductsClient />;
 }

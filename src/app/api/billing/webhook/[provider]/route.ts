@@ -24,7 +24,7 @@ export const POST = withApiHandler<RouteContext>(async (request, { params }) => 
   }
 
   const rawBody = await request.text();
-  const event = parseProviderWebhook(provider.data, rawBody, request);
+  const event = await parseProviderWebhook(provider.data, rawBody, request);
   const result = await processBillingWebhook(event);
 
   return NextResponse.json({ received: true, ...result });

@@ -11,6 +11,27 @@ const jwtPayloadSchema = z.object({
 
 export type AuthSession = z.infer<typeof jwtPayloadSchema>;
 
+const DEFAULT_JWT_EXPIRES_IN = "7d";
+
+function parseJwtMaxAgeSeconds(value: string) {
+  const match = value.trim().match(/^(\d+)([smhd])$/);
+
+  if (!match) {
+    return 60 * 60 * 24 * 7;
+  }
+
+  const amount = Number(match[1]);
+  const unit = match[2];
+  const multipliers = {
+    s: 1,
+    m: 60,
+    h: 60 * 60,
+    d: 60 * 60 * 24,
+  };
+
+  return amount * multipliers[unit as keyof typeof multipliers];
+}
+
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
 
@@ -26,7 +47,8 @@ function getJwtSecret() {
 export function signAuthToken(session: AuthSession) {
   const options: SignOptions = {
     algorithm: "HS256",
-    expiresIn: (process.env.JWT_EXPIRES_IN ?? "7d") as SignOptions["expiresIn"],
+    expiresIn: (process.env.JWT_EXPIRES_IN ??
+      DEFAULT_JWT_EXPIRES_IN) as SignOptions["expiresIn"],
     issuer: process.env.JWT_ISSUER ?? "stockpro",
     audience: process.env.JWT_AUDIENCE ?? "stockpro-app",
   };
@@ -34,6 +56,12 @@ export function signAuthToken(session: AuthSession) {
   return jwt.sign(session, getJwtSecret(), {
     ...options,
   });
+}
+
+export function getSessionMaxAgeSeconds() {
+  return parseJwtMaxAgeSeconds(
+    process.env.JWT_EXPIRES_IN ?? DEFAULT_JWT_EXPIRES_IN,
+  );
 }
 
 export function verifyAuthToken(token: string): AuthSession {

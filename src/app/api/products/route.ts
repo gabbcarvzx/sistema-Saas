@@ -83,7 +83,7 @@ export const POST = withApiHandler(async (request) => {
     });
 
     return NextResponse.json(product, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (getPrismaErrorCode(error) === "P2002") {
       return NextResponse.json(
         { message: "Já existe um produto com este código." },
@@ -98,11 +98,6 @@ export const POST = withApiHandler(async (request) => {
       );
     }
 
-    console.error("Erro ao criar produto:", error);
-
-    return NextResponse.json(
-      { message: "Erro interno ao criar produto." },
-      { status: 500 },
-    );
+    throw error;
   }
 });
